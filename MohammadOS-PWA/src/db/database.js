@@ -1,0 +1,362 @@
+import Dexie from "dexie";
+import { getHierarchyFields } from "../utils/date";
+
+export const db = new Dexie("MohammadOS");
+
+/**
+ * اصل مهم:
+ * - نسخه‌های قبلی حذف یا بازنویسی نمی‌شوند
+ * - migrationها فقط افزایشی‌اند
+ * - مدل canonical برای recurrence:
+ *   habit.recurrence = { type: "daily" }
+ *   habit.recurrence = { type: "weekly", days: [...] }
+ */
+
+/* =========================
+ * v3
+ * ========================= */
+db.version(3).stores({
+  habits: "id, date, habitId",
+  courses: "id, name, instructor",
+  courseSessions: "id, courseId, date, episodeNumber, status",
+  fixedEvents: "id, dayOfWeek, title, startTime, endTime",
+  events: "id, type, aggregate, aggregateId, createdAt",
+  logs: "id, level, createdAt",
+  sync_queue: "id, eventId, status, createdAt",
+  schedules: "id, dayOfWeek",
+  dayLogs: "date, fullDay",
+  activeTimer: "id, taskRefId, isRunning",
+  gates: "id, title",
+  drafts: "key",
+  lifeWheelScores: "id, periodKey, startDate, endDate",
+});
+
+/* =========================
+ * v4
+ * domain support
+ * ========================= */
+db.version(4)
+  .stores({
+    habits: "id, date, habitId, domain",
+    courses: "id, name, instructor",
+    courseSessions: "id, courseId, date, episodeNumber, status",
+    fixedEvents: "id, dayOfWeek, title, startTime, endTime",
+    events: "id, type, aggregate, aggregateId, createdAt",
+    logs: "id, level, createdAt",
+    sync_queue: "id, eventId, status, createdAt",
+    schedules: "id, dayOfWeek",
+    dayLogs: "date, fullDay",
+    activeTimer: "id, taskRefId, isRunning",
+    gates: "id, title",
+    drafts: "key",
+    lifeWheelScores: "id, periodKey, startDate, endDate",
+  })
+  .upgrade(async (tx) => {
+    await tx.table("habits").toCollection().modify((habit) => {
+      if (!habit.domain) habit.domain = "general";
+    });
+  });
+
+/* =========================
+ * v5
+ * ========================= */
+db.version(5).stores({
+  habits: "id, date, habitId, domain",
+  courses: "id, name, instructor",
+  courseSessions: "id, courseId, date, episodeNumber, status",
+  fixedEvents: "id, dayOfWeek, title, startTime, endTime",
+  events: "id, type, aggregate, aggregateId, createdAt",
+  logs: "id, level, createdAt",
+  sync_queue: "id, eventId, status, createdAt",
+  schedules: "id, dayOfWeek",
+  dayLogs: "date, fullDay",
+  activeTimer: "id, taskRefId, isRunning",
+  gates: "id, title",
+  drafts: "key",
+  lifeWheelScores: "id, periodKey, startDate, endDate",
+});
+
+/* =========================
+ * v6
+ * ========================= */
+db.version(6).stores({
+  habits: "id, date, habitId, domain",
+  courses: "id, name, instructor",
+  courseSessions: "id, courseId, date, episodeNumber, status",
+  fixedEvents: "id, dayOfWeek, title, startTime, endTime",
+  events: "id, type, aggregate, aggregateId, createdAt",
+  logs: "id, level, createdAt",
+  sync_queue: "id, eventId, status, createdAt",
+  schedules: "id, dayOfWeek",
+  dayLogs: "date, fullDay",
+  activeTimer: "id, taskRefId, isRunning",
+  gates: "id, title",
+  drafts: "key",
+  lifeWheelScores: "id, periodKey, startDate, endDate",
+});
+
+/* =========================
+ * v7
+ * ========================= */
+db.version(7).stores({
+  habits: "id, date, habitId, domain",
+  courses: "id, name, instructor",
+  courseSessions: "id, courseId, date, episodeNumber, status",
+  fixedEvents: "id, dayOfWeek, title, startTime, endTime",
+  events: "id, type, aggregate, aggregateId, createdAt",
+  logs: "id, level, createdAt",
+  sync_queue: "id, eventId, status, createdAt",
+  schedules: "id, dayOfWeek",
+  dayLogs: "date, fullDay",
+  activeTimer: "id, taskRefId, isRunning",
+  gates: "id, title",
+  drafts: "key",
+  lifeWheelScores: "id, periodKey, startDate, endDate",
+});
+
+/* =========================
+ * v8
+ * recurrence as object model
+ * ========================= */
+db.version(8)
+  .stores({
+    habits: "id, date, habitId, domain",
+    courses: "id, name, instructor",
+    courseSessions: "id, courseId, date, episodeNumber, status",
+    fixedEvents: "id, dayOfWeek, title, startTime, endTime",
+    events: "id, type, aggregate, aggregateId, createdAt",
+    logs: "id, level, createdAt",
+    sync_queue: "id, eventId, status, createdAt",
+    schedules: "id, dayOfWeek",
+    dayLogs: "date, fullDay",
+    activeTimer: "id, taskRefId, isRunning",
+    gates: "id, title",
+    drafts: "key",
+    lifeWheelScores: "id, periodKey, startDate, endDate",
+  })
+  .upgrade(async (tx) => {
+    await tx.table("habits").toCollection().modify((habit) => {
+      if (!habit.recurrence || typeof habit.recurrence !== "object") {
+        habit.recurrence = { type: "daily" };
+      } else {
+        if (!habit.recurrence.type) habit.recurrence.type = "daily";
+        if (
+          habit.recurrence.type === "weekly" &&
+          !Array.isArray(habit.recurrence.days)
+        ) {
+          habit.recurrence.days = [];
+        }
+      }
+    });
+  });
+
+/* =========================
+ * v9
+ * EMA-related fields
+ * ========================= */
+db.version(9)
+  .stores({
+    habits: "id, date, habitId, domain, lastEmaDate, strengthBeforeToday",
+    courses: "id, name, instructor",
+    courseSessions: "id, courseId, date, episodeNumber, status",
+    fixedEvents: "id, dayOfWeek, title, startTime, endTime",
+    events: "id, type, aggregate, aggregateId, createdAt",
+    logs: "id, level, createdAt",
+    sync_queue: "id, eventId, status, createdAt",
+    schedules: "id, dayOfWeek",
+    dayLogs: "date, fullDay",
+    activeTimer: "id, taskRefId, isRunning",
+    gates: "id, title",
+    drafts: "key",
+    lifeWheelScores: "id, periodKey, startDate, endDate",
+  })
+  .upgrade(async (tx) => {
+    await tx.table("habits").toCollection().modify((habit) => {
+      if (!("lastEmaDate" in habit)) habit.lastEmaDate = null;
+      if (!("strengthBeforeToday" in habit)) habit.strengthBeforeToday = 0;
+    });
+  });
+
+/* =========================
+ * v10
+ * dayLogs hierarchy fields
+ * ========================= */
+db.version(10)
+  .stores({
+    habits: "id, date, habitId, domain, lastEmaDate, strengthBeforeToday",
+    courses: "id, name, instructor",
+    courseSessions: "id, courseId, date, episodeNumber, status",
+    fixedEvents: "id, dayOfWeek, title, startTime, endTime",
+    events: "id, type, aggregate, aggregateId, createdAt",
+    logs: "id, level, createdAt",
+    sync_queue: "id, eventId, status, createdAt",
+    schedules: "id, dayOfWeek",
+    dayLogs: "date, fullDay, year, month, week, dayOfWeek, [year+month]",
+    activeTimer: "id, taskRefId, isRunning",
+    gates: "id, title",
+    drafts: "key",
+    lifeWheelScores: "id, periodKey, startDate, endDate",
+  })
+  .upgrade(async (tx) => {
+    await tx.table("dayLogs").toCollection().modify((d) => {
+      Object.assign(d, getHierarchyFields(d.date));
+    });
+  });
+
+/* =========================
+ * v11
+ * dayLogs status + optimized indexes
+ * ========================= */
+db.version(11)
+  .stores({
+    habits: "id, date, habitId, domain, lastEmaDate, strengthBeforeToday",
+    courses: "id, name, instructor",
+    courseSessions: "id, courseId, date, episodeNumber, status",
+    fixedEvents: "id, dayOfWeek, title, startTime, endTime",
+    events: "id, type, aggregate, aggregateId, createdAt",
+    logs: "id, level, createdAt",
+    sync_queue: "id, eventId, status, createdAt",
+    schedules: "id, dayOfWeek",
+    dayLogs:
+      "date, fullDay, year, month, week, dayOfWeek, status, [year+month], [year+month+status]",
+    activeTimer: "id, taskRefId, isRunning",
+    gates: "id, title",
+    drafts: "key",
+    lifeWheelScores: "id, periodKey, startDate, endDate",
+  })
+  .upgrade(async (tx) => {
+    await tx.table("dayLogs").toCollection().modify((d) => {
+      Object.assign(d, getHierarchyFields(d.date));
+      if (!d.status) d.status = "active";
+    });
+  });
+
+/* =========================
+ * v12
+ * corrective migration
+ * ========================= */
+db.version(12)
+  .stores({
+    habits: "id, date, habitId, domain, lastEmaDate, strengthBeforeToday",
+    courses: "id, name, instructor",
+    courseSessions: "id, courseId, date, episodeNumber, status",
+    fixedEvents: "id, dayOfWeek, title, startTime, endTime",
+    events: "id, type, aggregate, aggregateId, createdAt",
+    logs: "id, level, createdAt",
+    sync_queue: "id, eventId, status, createdAt",
+    schedules: "id, dayOfWeek",
+    dayLogs:
+      "date, fullDay, year, month, week, dayOfWeek, status, [year+month], [year+month+status]",
+    activeTimer: "id, taskRefId, isRunning",
+    gates: "id, title",
+    drafts: "key",
+    lifeWheelScores: "id, periodKey, startDate, endDate",
+  })
+  .upgrade(async (tx) => {
+    await tx.table("habits").toCollection().modify((habit) => {
+      const hasObjectRecurrence =
+        habit.recurrence &&
+        typeof habit.recurrence === "object" &&
+        !Array.isArray(habit.recurrence);
+
+      if (!hasObjectRecurrence) {
+        const flatType = habit.recurrenceType;
+        const flatDays = habit.recurrenceDays;
+
+        if (flatType === "weekly") {
+          habit.recurrence = {
+            type: "weekly",
+            days: Array.isArray(flatDays) ? flatDays : [],
+          };
+        } else {
+          habit.recurrence = { type: "daily" };
+        }
+      } else {
+        if (!habit.recurrence.type) habit.recurrence.type = "daily";
+        if (
+          habit.recurrence.type === "weekly" &&
+          !Array.isArray(habit.recurrence.days)
+        ) {
+          habit.recurrence.days = [];
+        }
+      }
+
+      if ("recurrenceType" in habit) delete habit.recurrenceType;
+      if ("recurrenceInterval" in habit) delete habit.recurrenceInterval;
+      if ("recurrenceDays" in habit) delete habit.recurrenceDays;
+      if ("startDate" in habit) delete habit.startDate;
+      if ("endDate" in habit) delete habit.endDate;
+
+      if (!("lastEmaDate" in habit)) habit.lastEmaDate = null;
+      if (!("strengthBeforeToday" in habit)) habit.strengthBeforeToday = 0;
+      if (!habit.domain) habit.domain = "general";
+    });
+
+    await tx.table("dayLogs").toCollection().modify((d) => {
+      Object.assign(d, getHierarchyFields(d.date));
+      if (!d.status) d.status = "active";
+    });
+  });
+
+/* =========================
+ * v13
+ * lifeWheelScores history indexes
+ * - year/month برای queryهای ماهانه
+ * - week فعلاً از migration پر نمی‌شود تا با week-of-month قاطی نشود
+ * ========================= */
+db.version(13)
+  .stores({
+    habits: "id, date, habitId, domain, lastEmaDate, strengthBeforeToday",
+    courses: "id, name, instructor",
+    courseSessions: "id, courseId, date, episodeNumber, status",
+    fixedEvents: "id, dayOfWeek, title, startTime, endTime",
+    events: "id, type, aggregate, aggregateId, createdAt",
+    logs: "id, level, createdAt",
+    sync_queue: "id, eventId, status, createdAt",
+    schedules: "id, dayOfWeek",
+    dayLogs:
+      "date, fullDay, year, month, week, dayOfWeek, status, [year+month], [year+month+status]",
+    activeTimer: "id, taskRefId, isRunning",
+    gates: "id, title",
+    drafts: "key",
+    lifeWheelScores:
+      "id, periodKey, startDate, endDate, year, month, week, [year+month]",
+  })
+  .upgrade(async (tx) => {
+    await tx.table("lifeWheelScores").toCollection().modify((score) => {
+      if (score.startDate) {
+        const { year, month } = getHierarchyFields(score.startDate);
+        score.year = year;
+        score.month = month;
+      }
+
+      if (!("week" in score)) score.week = null;
+    });
+  });
+
+/* =========================
+ * v14
+ * settings table support
+ * - جدول settings برای key-value config
+ * - بدون بازنویسی نسخه‌های قبلی
+ * ========================= */
+db.version(14).stores({
+  habits: "id, date, habitId, domain, lastEmaDate, strengthBeforeToday",
+  courses: "id, name, instructor",
+  courseSessions: "id, courseId, date, episodeNumber, status",
+  fixedEvents: "id, dayOfWeek, title, startTime, endTime",
+  events: "id, type, aggregate, aggregateId, createdAt",
+  logs: "id, level, createdAt",
+  sync_queue: "id, eventId, status, createdAt",
+  schedules: "id, dayOfWeek",
+  dayLogs:
+    "date, fullDay, year, month, week, dayOfWeek, status, [year+month], [year+month+status]",
+  activeTimer: "id, taskRefId, isRunning",
+  gates: "id, title",
+  drafts: "key",
+  settings: "key",
+  lifeWheelScores:
+    "id, periodKey, startDate, endDate, year, month, week, [year+month]",
+});
+
+export default db;

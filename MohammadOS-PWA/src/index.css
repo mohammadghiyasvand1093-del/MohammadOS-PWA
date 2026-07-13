@@ -1,0 +1,87 @@
+@import "tailwindcss";
+
+@theme {
+  /* تعریف پلت رنگی اختصاصی "کنسول ماموریت" در هسته Tailwind */
+  --color-os-bg: #0B0F14;
+  --color-os-text: #E8ECF1;
+  --color-os-accent: #F5A623;
+  --color-os-border: #232B36;
+  --color-os-card: #131922;
+  --color-os-steel: #4FA8E0;
+  
+  /* تعریف فونت‌های سیستم */
+  --font-vazir: "Vazirmatn", ui-sans-serif, system-ui;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+/* بهینه‌سازی لایه Base با متد جدید */
+@layer base {
+  :root {
+    background-color: var(--color-os-bg);
+    color: var(--color-os-text);
+    font-family: var(--font-vazir);
+    /* فعال‌سازی قابلیت‌های مدرن مرورگر */
+    color-scheme: dark;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    margin: 0;
+    display: flex;
+    place-items: center;
+    min-width: 320px;
+    min-height: 100vh;
+  }
+
+  #root {
+    width: 1126px;
+    max-width: 100%;
+    margin: 0 auto;
+    min-height: 100vh;
+    border-inline: 1px solid var(--color-os-border);
+    background-color: color-mix(in srgb, var(--color-os-bg), transparent 5%);
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+/* لایه کامپوننت‌های سفارشی با استفاده از توابع مدرن CSS */
+@layer components {
+  .os-card {
+    @apply bg-os-card border border-os-border rounded-xl p-6 transition-all duration-300;
+    &:hover {
+      @apply border-os-accent/50 shadow-[0_0_20px_rgba(245,166,35,0.1)];
+    }
+  }
+
+  .os-title {
+    @apply text-5xl font-extrabold tracking-tight my-8 text-white;
+  }
+}
+
+/* اسکرول‌بار اختصاصی و مدرن (Minimalist Dark) */
+@utility custom-scrollbar {
+  ::-webkit-scrollbar {
+    width: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--color-os-bg);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-os-border);
+    border-radius: 10px;
+    &:hover {
+      background: var(--color-os-accent);
+    }
+  }
+}
+
+/* اعمال اسکرول‌بار به کل سند */
+@layer base {
+  html {
+    @apply custom-scrollbar;
+  }
+}
