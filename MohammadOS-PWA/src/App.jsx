@@ -84,7 +84,7 @@ function AppLayout() {
     return () => clearInterval(interval);
   }, []);
 
-  // ✅ بچ ۷۱: Fetching data for Notification Center
+  // ✅ بچ ۷۹: رفع لگ موبایل - حذف location.pathname از وابستگی‌ها
   useEffect(() => {
     async function fetchNotifData() {
       try {
@@ -109,7 +109,7 @@ function AppLayout() {
     fetchNotifData();
     const interval = setInterval(fetchNotifData, 60000); 
     return () => clearInterval(interval);
-  }, [location.pathname]); 
+  }, []); // ✅ فقط یک بار در ابتدای لود برنامه اجرا شود
 
   // ✅ بچ ۷۱: Close dropdown on outside click
   useEffect(() => {
@@ -480,11 +480,12 @@ function AppLayout() {
         )}
 
         {/* Batch 31 & 38: Main content with fade transition + focus management + skip link target */}
+        {/* ✅ بچ ۷۹: اضافه شدن will-change-opacity برای روان‌تر شدن انیمیشن موبایل */}
         <main
           ref={mainRef}
           id="main-content"
           tabIndex={-1}
-          className="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8 transition-opacity duration-300 ease-out outline-none"
+          className="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8 transition-opacity duration-300 ease-out outline-none will-change-opacity"
         >
           <div className="max-w-3xl mx-auto">
             <Suspense fallback={<PageLoader />}>

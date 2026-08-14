@@ -29,8 +29,9 @@ export function useSwipeNavigation(mainRef, location, navigate) {
       const deltaX = e.changedTouches[0].screenX - touchStartX;
       const deltaY = e.changedTouches[0].screenY - touchStartY;
 
-      if (Math.abs(deltaX) < 60) return;
-      if (Math.abs(deltaY) > Math.abs(deltaX)) return;
+      // ✅ بچ ۷۹: اصلاح حساسیت کشیدن انگشت
+      if (Math.abs(deltaX) < 80) return; // فاصله کشیده شدن باید بیشتر باشد
+      if (Math.abs(deltaY) > Math.abs(deltaX) * 0.5) return; // اگر حرکت مورب بود، لغو شود
 
       const currentIndex = navItems.findIndex(
         (item) => item.path === location.pathname

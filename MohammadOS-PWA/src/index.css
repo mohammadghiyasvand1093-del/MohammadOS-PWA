@@ -17,32 +17,26 @@
 
 /* ═══════════════════════════════════════════
    بچ ۶۶ — Theme Toggle (Dark / Light / System)
-   متغیرهای CSS در لایه unlayered — بالاترین اولویت
    ═══════════════════════════════════════════ */
-
-/* Dark = پیش‌فرض (همان مقادیر @theme) */
 [data-theme="dark"] {
   color-scheme: dark;
 }
 
-/* Light — بازنویسی کامل پالت */
 [data-theme="light"] {
   color-scheme: light;
-  --color-os-bg: #F1F5F9;       /* slate-100 */
-  --color-os-card: #FFFFFF;      /* white */
-  --color-os-border: #E2E8F0;   /* slate-200 */
-  --color-os-text: #1E293B;     /* slate-800 */
-  --color-os-accent: #C2410C;   /* orange-700 — کنتراست 4.8:1 روی سفید */
-  --color-os-steel: #0369A1;    /* sky-700 */
+  --color-os-bg: #F1F5F9;
+  --color-os-card: #FFFFFF;
+  --color-os-border: #E2E8F0;
+  --color-os-text: #1E293B;
+  --color-os-accent: #C2410C;
+  --color-os-steel: #0369A1;
 }
 
-/* بهینه‌سازی لایه Base با متد جدید */
 @layer base {
   :root {
     background-color: var(--color-os-bg);
     color: var(--color-os-text);
     font-family: var(--font-vazir);
-    /* فعال‌سازی قابلیت‌های مدرن مرورگر */
     color-scheme: dark;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
@@ -69,7 +63,6 @@
     flex-direction: column;
   }
 
-  /* اعمال اسکرول‌بار اختصاصی مستقیماً در پایه */
   ::-webkit-scrollbar {
     width: 5px;
   }
@@ -84,11 +77,6 @@
     background: var(--color-os-accent);
   }
 
-  /* ═══════════════════════════════════════════
-     بچ ۶۶ — Smooth Theme Transition
-     فقط روی رنگ/پس‌زمینه/بُردِر — تداخل با transform/opacity ندارد
-     عناصر دارای کلاس Tailwind transition-* اولویت بالاتر دارند
-     ═══════════════════════════════════════════ */
   @media (prefers-reduced-motion: no-preference) {
     html,
     html * {
@@ -99,34 +87,30 @@
   }
 }
 
-/* لایه کامپوننت‌های سفارشی با استفاده از CSS خالص (بدون @apply) */
 @layer components {
   .os-card {
     background-color: var(--color-os-card);
     border: 1px solid var(--color-os-border);
-    border-radius: 0.75rem; /* rounded-xl */
-    padding: 1.5rem; /* p-6 */
-    transition: all 0.3s ease-in-out; /* transition-all duration-300 */
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    transition: all 0.3s ease-in-out;
 
     &:hover {
       border-color: color-mix(in srgb, var(--color-os-accent) 50%, transparent);
-      /* بچ ۶۶: shadow با color-mix برای تطبیق با تم فعال */
       box-shadow: 0 0 20px color-mix(in srgb, var(--color-os-accent) 10%, transparent);
     }
   }
 
   .os-title {
-    font-size: 3rem; /* text-5xl */
+    font-size: 3rem;
     line-height: 1;
-    font-weight: 800; /* font-extrabold */
-    letter-spacing: -0.025em; /* tracking-tight */
-    margin: 2rem 0; /* my-8 */
-    /* بچ ۶۶: استفاده از متغیر به جای رنگ ثابت سفید */
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    margin: 2rem 0;
     color: var(--color-os-text);
   }
 }
 
-/* رفع بهم ریختگی Legend در کتابخانه react-activity-calendar */
 .heatmap-rtl-fix [class*="react-activity-calendar"] [class*="legend"] > span:last-child,
 .heatmap-rtl-fix [class*="react-activity-calendar__legend"] > span:last-child {
   display: none !important;
@@ -136,11 +120,6 @@
   flex-direction: row-reverse !important;
 }
 
-/* ═══════════════════════════════════════════
-   بچ ۶۶ — Light Mode Utility Color Overrides
-   تیره‌سازی رنگ‌های Tailwind برای کنتراست روی پس‌زمینه روشن
-   Specificity: (0,2,0) > Tailwind utility (0,1,0)
-   ═══════════════════════════════════════════ */
 [data-theme="light"] .text-amber-400   { color: #B45309; }
 [data-theme="light"] .text-emerald-400 { color: #047857; }
 [data-theme="light"] .text-red-400     { color: #DC2626; }
@@ -157,3 +136,55 @@
 [data-theme="light"] .bg-sky-500\/10     { background-color: rgba(3, 105, 161, 0.1); }
 [data-theme="light"] .border-sky-500     { border-color: #0369A1; }
 [data-theme="light"] .shadow-black\/50   { --tw-shadow-color: rgba(0, 0, 0, 0.15); }
+
+/* ═══════════════════════════════════════════
+   بچ ۷۹ — Mobile UX & Readability Enhancements
+   ═══════════════════════════════════════════ */
+@media (max-width: 768px) {
+  main#main-content {
+    padding: 1rem;
+  }
+
+  nav[role="navigation"][aria-label="ناوبری موبایل"] a span:last-child {
+    font-size: 10px !important;
+    margin-top: 2px;
+  }
+
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+
+  .os-card {
+    padding: 1rem;
+    border-radius: 0.5rem;
+  }
+  
+  .grid-cols-2 {
+    gap: 0.75rem !important;
+  }
+}
+
+/* ═══════════════════════════════════════════
+   بچ ۸۰ — Mobile Native Polish (Safe Area & Tap Highlight)
+   ═══════════════════════════════════════════ */
+html {
+  -webkit-tap-highlight-color: transparent; /* حذف هاله آبی دکمه‌ها هنگام ضربه زدن */
+}
+
+button, a {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation; /* بهبود سرعت تاچ و حذف تاخیر ۳۰۰ms در موبایل */
+}
+
+@media (max-width: 768px) {
+  /* حفظ فاصله از نوار سیستمی پایین گوشی (مثل آیفون‌های بدون دکمه) */
+  nav[role="navigation"][aria-label="ناوبری موبایل"] {
+    margin-bottom: env(safe-area-inset-bottom, 0px);
+    padding-bottom: 0.25rem;
+  }
+  
+  /* حفظ فاصله از ناچ یا دوربین بالای صفحه */
+  header {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
