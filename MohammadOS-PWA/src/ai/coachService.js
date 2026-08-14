@@ -1,13 +1,7 @@
 // src/ai/coachService.js
-const BASE_URL = import.meta.env.VITE_AVALAI_BASE_URL || "https://api.avalai.ir/v1";
-const API_KEY = import.meta.env.VITE_AVALAI_API_KEY;
-const MODEL = import.meta.env.VITE_AVALAI_MODEL || "gpt-4o-mini";
 
 /**
- * Batch 59 — Local Insights + AvalAI Fallback
- * Compatible endpoint: OpenAI-style /v1/chat/completions
- * Fallback to rule-based on any failure (network, quota, key missing)
- *
+ * M1.1 — Local Insights + AvalAI Proxy Fallback
  * DESIGN: Pure service — NO imports from aggregationService or repositories.
  * All data arrives via parameters from caller.
  */
@@ -23,12 +17,6 @@ const DOMAINS = [
   { key: "social",     label: "اجتماعی",      icon: "🤝" },
 ];
 
-/**
- * @param {object} vitals      — from getVitals()
- * @param {object} weeklyStats — from getWeeklyStats()
- * @param {array}  domainTrend — from getDomainTrend(6)
- * @param {object} todayLog    — from DayLogRepository.getByDate(todayKey)
- */
 function buildRuleBasedInsights(vitals = {}, weeklyStats = {}, domainTrend = [], todayLog = null) {
   const insights = [];
 
@@ -96,10 +84,8 @@ function buildRuleBasedInsights(vitals = {}, weeklyStats = {}, domainTrend = [],
     });
   }
 
-  // ✅ Defensive: Support both 'entries' (TodayPage schema) and 'habits' (legacy schema)
   const taskList = todayLog?.entries || todayLog?.habits || [];
 
-  // Insight 1 — Critical Mission Miss
   if (taskList.some((e) => e.isCritical && !e.done)) {
     const undone = taskList.filter((e) => e.isCritical && !e.done);
     insights.push({
@@ -111,7 +97,6 @@ function buildRuleBasedInsights(vitals = {}, weeklyStats = {}, domainTrend = [],
     });
   }
 
-  // Insight 2 — Streak At Risk
   if (vitals.streak > 0 && todayLog && !todayLog.fullDay && todayLog.status !== "frozen") {
     insights.push({
       severity: "warning",
@@ -122,7 +107,6 @@ function buildRuleBasedInsights(vitals = {}, weeklyStats = {}, domainTrend = [],
     });
   }
 
-  // Insight 3 — Grace Burn Alert (2+ in 7 days)
   if (weeklyStats?.weeklyDayLogs) {
     const recentFrozen = weeklyStats.weeklyDayLogs.filter((l) => l.status === "frozen").length;
     if (recentFrozen >= 2) {
@@ -136,7 +120,6 @@ function buildRuleBasedInsights(vitals = {}, weeklyStats = {}, domainTrend = [],
     }
   }
 
-  // Insight 4 — Domain Weakness (2 weeks < 50%)
   if (domainTrend.length >= 2) {
     const lastTwo = domainTrend.slice(-2);
     DOMAINS.forEach((d) => {
@@ -155,7 +138,6 @@ function buildRuleBasedInsights(vitals = {}, weeklyStats = {}, domainTrend = [],
     });
   }
 
-  // Insight 5 — Burnout Pattern (low mood + low full-day)
   if (weeklyStats?.weeklyDayLogs) {
     const activeLogs = weeklyStats.weeklyDayLogs.filter((l) => l.status !== "frozen");
     const lowMoodDays = activeLogs.filter((l) => l.mood != null && l.mood <= 2).length;
@@ -183,37 +165,27 @@ function buildRuleBasedInsights(vitals = {}, weeklyStats = {}, domainTrend = [],
   return insights;
 }
 
-/**
- * getInsights — rule-based local insights.
- * Caller MUST pass all 4 arguments for full insights.
- */
 export function getInsights(vitals, weeklyStats, domainTrend, todayLog) {
   return buildRuleBasedInsights(vitals, weeklyStats, domainTrend, todayLog);
 }
 
-/* ──────────── AvalAI core caller ──────────── */
+/* ──────────── AvalAI core caller (M1.1: Secured via Proxy) ──────────── */
 
 async function callAvalAI(messages, maxTokens = 600) {
-  if (!API_KEY) {
-    throw new Error("AVALAI_API_KEY missing");
-  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
 
   try {
-    const res = await fetch(`${BASE_URL}/chat/completions`, {
+    const res = await fetch('/api/ai/coach', {
       method: "POST",
       signal: controller.signal,
       headers: {
-        "Authorization": `Bearer ${API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: MODEL,
         messages,
         max_tokens: maxTokens,
         temperature: 0.7,
-        stream: false,
       }),
     });
     clearTimeout(timeout);
@@ -225,7 +197,7 @@ async function callAvalAI(messages, maxTokens = 600) {
 
     const data = await res.json();
     const content = data.choices?.[0]?.message?.content?.trim();
-    if (!content) throw new Error("Empty response from AvalAI");
+    if (!content) throw new Error("Empty response from AI coach");
     return content;
   } catch (e) {
     clearTimeout(timeout);
@@ -243,7 +215,6 @@ const SYSTEM_COACH = `تو یک مربی بهره‌وری فارسی‌زبان
 - یک پیشنهاد مشخص و قابل اجرا برای گام بعدی بده`;
 
 function buildEveningPrompt(dayLog) {
-  // ✅ Defensive: Support both 'entries' and 'habits'
   const habitList = dayLog?.entries || dayLog?.habits || [];
   const habits = habitList.map(h => `- ${h.title}: ${h.done ? "✅" : "❌"}${h.isCritical ? " (مهم)" : ""}`).join("\n") || "بدون عادت";
   const mood = dayLog?.mood || "نامشخص";
@@ -268,7 +239,6 @@ function buildEveningPrompt(dayLog) {
 
 function buildWeeklyPrompt(dayLogs) {
   const summary = dayLogs.map((d, i) => {
-    // ✅ Defensive: Support both 'entries' and 'habits'
     const list = d.entries || d.habits || [];
     const done = list.filter(h => h.done).length || 0;
     const total = list.length || 0;
@@ -285,13 +255,6 @@ function buildWeeklyPrompt(dayLogs) {
   ];
 }
 
-/**
- * buildMonthlyPrompt — DEFENSIVE: accepts both Array and Object shapes.
- *
- * Callers:
- *   - CoachSection.jsx passes: [] (array of {title, status})
- *   - RoadmapPage.jsx passes: { totalGates, completedGates, gates: [{title, progress}] }
- */
 function buildMonthlyPrompt(monthLogs = [], roadmapStatus) {
   const logs = monthLogs || [];
   const fullDays = logs.filter(d => d.fullDay).length;
@@ -299,7 +262,6 @@ function buildMonthlyPrompt(monthLogs = [], roadmapStatus) {
     ? (logs.reduce((s, d) => s + (d.mood || 0), 0) / logs.length).toFixed(1)
     : "-";
 
-  /* ── defensive roadmap rendering ── */
   let roadmap = "نامشخص";
   if (Array.isArray(roadmapStatus) && roadmapStatus.length > 0) {
     roadmap = roadmapStatus.map(r => `- ${r.title}: ${r.status}`).join("\n");
@@ -329,44 +291,35 @@ Roadmap:
 /* ──────────── Public API ──────────── */
 
 export async function runEveningReview(dayLog) {
-  if (!API_KEY) {
-    return "🔌 AvalAI فعال نیست (API Key یافت نشد). تحلیل محلی: امروز را مرور کن و برای فردا برنامه‌ریزی کن.";
-  }
   try {
     const messages = buildEveningPrompt(dayLog);
     return await callAvalAI(messages, 400);
   } catch (err) {
-    console.error("[AvalAI EveningReview]", err);
-    return `⚠️ خطای اتصال به AvalAI: ${err.message}.\n💡 تحلیل محلی: امروز را مرور کن و برای فردا برنامه‌ریزی کن.`;
+    console.error("[AI EveningReview]", err);
+    return `⚠️ خطای اتصال به سرور هوش مصنوعی: ${err.message}.\n💡 تحلیل محلی: امروز را مرور کن و برای فردا برنامه‌ریزی کن.`;
   }
 }
 
 export async function runWeeklyAnalysis(dayLogs) {
-  if (!API_KEY) {
-    return "🔌 AvalAI فعال نیست. گزارش محلی: هفتهٔ خود را مرور کن و نقاط قوت و ضعف را شناسایی کن.";
-  }
   try {
     const messages = buildWeeklyPrompt(dayLogs);
     return await callAvalAI(messages, 500);
   } catch (err) {
-    console.error("[AvalAI Weekly]", err);
+    console.error("[AI Weekly]", err);
     return `⚠️ خطای اتصال: ${err.message}.\n💡 گزارش محلی: هفتهٔ خود را مرور کن.`;
   }
 }
 
 export async function runMonthlyReview(monthLogs, roadmapStatus) {
-  if (!API_KEY) {
-    return "🔌 AvalAI فعال نیست. بررسی محلی: ماه را مرور کن و اولویت‌های آینده را مشخص کن.";
-  }
   try {
     const messages = buildMonthlyPrompt(monthLogs, roadmapStatus);
     return await callAvalAI(messages, 600);
   } catch (err) {
-    console.error("[AvalAI Monthly]", err);
+    console.error("[AI Monthly]", err);
     return `⚠️ خطای اتصال: ${err.message}.\n💡 بررسی محلی: ماه را مرور کن.`;
   }
 }
 
 export function isAvalAIConfigured() {
-  return Boolean(API_KEY);
+  return true; // Proxy handles configuration server-side
 }

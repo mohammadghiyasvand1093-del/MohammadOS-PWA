@@ -5,14 +5,12 @@ import SidebarWidgets from "./components/SidebarWidgets";
 import { exportToJSON, isBackupStale } from "./app/exportData";
 import { AggregationService } from "./service/aggregationService";
 
-// ✅ Phase C: Import extracted hooks and constants
 import { navItems, pagePrefetchers } from "./constants/navigation";
 import { useOnboarding } from "./hooks/useOnboarding";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useSwipeNavigation } from "./hooks/useSwipeNavigation";
 
-// Batch 30: Code Splitting — lazy load all page components
 const TodayPage = lazy(() => import("./pages/TodayPage"));
 const SchedulePage = lazy(() => import("./pages/SchedulePage"));
 const PlannerPage = lazy(() => import("./pages/PlannerPage"));
@@ -39,52 +37,73 @@ function AppLayout() {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   
-  // ✅ بچ ۷۴: State برای مدیریت هشدار بکاپ
   const [backupStale, setBackupStale] = useState(false);
   const [backupLoading, setBackupLoading] = useState(false);
   
-  // ✅ بچ ۷۱: Notification Center State
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [notifData, setNotifData] = useState(null);
   
   const mainRef = useRef(null);
   const notifRef = useRef(null);
 
-  // ✅ Phase C: Using extracted hooks
   const { showOnboarding, onboardingStep, setOnboardingStep, handleFinishOnboarding } = useOnboarding();
   const isOnline = useOnlineStatus();
-  useKeyboardShortcuts(navigate, setCollapsed);
-  useSwipeNavigation(mainRef, location, navigate);
 
-  // Batch 38: Set document language and direction for screen readers
+  // M1.7 — View Transitions API wrapper
+  const navigateWithTransition = useCallback((path) => {
+    if (document.startViewTransition) {
+      document.startViewTransition(() => navigate(path));
+    } else {
+      navigate(path);
+    }
+  }, [navigate]);
+
+  useKeyboardShortcuts(navigateWithTransition, setCollapsed);
+  useSwipeNavigation(mainRef, location, navigateWithTransition);
+
   useEffect(() => {
     document.documentElement.lang = "fa";
     document.documentElement.dir = "rtl";
   }, []);
 
-  // Batch 31: Fade transition on route change + Focus management
+  // M1.7: Fade transition optimized for View Transitions API
   useEffect(() => {
     const el = mainRef.current;
     if (!el) return;
     
+    if (document.startViewTransition) {
+      el.focus();
+      return;
+    }
+    
     el.style.opacity = 0;
     const timer = setTimeout(() => {
       el.style.opacity = 1;
-      el.focus(); // Batch 38: Move focus to main content on route change
+      el.focus();
     }, 50);
     
     return () => clearTimeout(timer);
   }, [location.pathname]);
 
-  // ✅ بچ ۷۴: بررسی قدیمی بودن بکاپ هر ساعت
+  // ✅ Fix: فقط اگر بکاپی وجود داشته باشد و قدیمی باشد هشدار بده
   useEffect(() => {
-    const check = () => setBackupStale(isBackupStale(7));
-    check();
+    const check = () => {
+      const lastBackup = localStorage.getItem("mohammados_last_export");
+      if (lastBackup) {
+        setBackupStale(isBackupStale(7));
+      } else {
+        setBackupStale(false); // اگر بکاپی اصلا وجود ندارد، بنر را نشان نده
+      }
+    };
+    
+    const timer = setTimeout(check, 3000); // بعد از ۳ ثانیه چک کن تا لود اولیه کامل شود
     const interval = setInterval(check, 1000 * 60 * 60); 
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
   }, []);
 
-  // ✅ بچ ۷۹: رفع لگ موبایل - حذف location.pathname از وابستگی‌ها
   useEffect(() => {
     async function fetchNotifData() {
       try {
@@ -109,9 +128,8 @@ function AppLayout() {
     fetchNotifData();
     const interval = setInterval(fetchNotifData, 60000); 
     return () => clearInterval(interval);
-  }, []); // ✅ فقط یک بار در ابتدای لود برنامه اجرا شود
+  }, []);
 
-  // ✅ بچ ۷۱: Close dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (isNotifOpen && notifRef.current && !notifRef.current.contains(e.target)) {
@@ -122,13 +140,11 @@ function AppLayout() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isNotifOpen]);
 
-  // Batch 31: Prefetch on hover
   const handlePrefetch = useCallback((path) => {
     const prefetch = pagePrefetchers[path];
     if (prefetch) prefetch();
   }, []);
 
-  // ✅ بچ ۷۴: هندلر بکاپ فوری
   const handleQuickBackup = useCallback(async () => {
     if (backupLoading) return;
     setBackupLoading(true);
@@ -143,7 +159,6 @@ function AppLayout() {
     }
   }, [backupLoading]);
 
-  // ✅ بچ ۷۱: Notifications Array Generator
   const notifications = useMemo(() => {
     if (!notifData) return [];
     const notifs = [];
@@ -180,29 +195,20 @@ function AppLayout() {
 
   const getPageTitle = () => {
     switch (location.pathname) {
-      case "/":
-        return "داشبورد اجرا";
-      case "/week":
-        return "کنسول مأموریت";
-      case "/planner":
-        return "برنامه‌ریز عملیاتی";
-      case "/reports":
-        return "گزارش‌ساز هوشمند";
-      case "/add":
-        return "ویرایشگر داده";
-      case "/status":
-        return "وضعیت سیستم";
-      case "/roadmap":
-        return "نقشه راه";
-      default:
-        return "MohammadOS";
+      case "/": return "داشبورد اجرا";
+      case "/week": return "کنسول مأموریت";
+      case "/planner": return "برنامه‌ریز عملیاتی";
+      case "/reports": return "گزارش‌ساز هوشمند";
+      case "/add": return "ویرایشگر داده";
+      case "/status": return "وضعیت سیستم";
+      case "/roadmap": return "نقشه راه";
+      default: return "MohammadOS";
     }
   };
 
   return (
     <div className="flex h-screen w-full bg-os-bg text-os-text font-vazir rtl select-none overflow-hidden">
       
-      {/* ✅ بچ ۷۷: Onboarding Modal */}
       {showOnboarding && (
         <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 animate-fade-in" role="dialog" aria-modal="true">
           <div className="bg-os-card border border-os-border rounded-2xl p-6 max-w-md w-full text-center shadow-2xl">
@@ -292,7 +298,6 @@ function AppLayout() {
         </div>
       )}
 
-      {/* Batch 38: Skip Link for keyboard users */}
       <a 
         href="#main-content" 
         className="sr-only focus:not-sr-only absolute top-2 left-2 z-50 bg-os-accent text-os-bg px-4 py-2 rounded shadow-lg"
@@ -300,14 +305,12 @@ function AppLayout() {
         پرش به محتوای اصلی
       </a>
 
-      {/* Batch 31: Sidebar desktop — collapsible */}
       <aside
         className={`hidden md:flex bg-os-card border-l border-os-border flex-col p-5 shrink-0 z-30 h-full min-h-0 overflow-y-auto transition-all duration-300 ease-out ${
           collapsed ? "w-16 items-center px-2" : "w-64 p-5"
         }`}
         aria-label="منوی اصلی کناری"
       >
-        {/* Collapse toggle */}
         <button
           onClick={() => setCollapsed(!collapsed)}
           className={`mb-4 text-os-text/40 hover:text-os-accent transition-colors duration-200 ${collapsed ? "self-center" : "self-end"}`}
@@ -318,7 +321,6 @@ function AppLayout() {
           <span className="text-lg" aria-hidden="true">{collapsed ? "→" : "←"}</span>
         </button>
 
-        {/* Logo */}
         <div className={`mb-8 text-center shrink-0 transition-opacity duration-300 ${collapsed ? "opacity-0 hidden" : "opacity-100"}`}>
           <h1 className="text-xl font-black text-os-text tracking-wide">
             MohammadOS
@@ -348,7 +350,6 @@ function AppLayout() {
               aria-label={item.ariaLabel}
             >
               <div className={`flex items-center ${collapsed ? "gap-0" : "gap-3"}`}>
-                {/* Batch 65: SVG Sprite Render Desktop */}
                 <span className="flex items-center" aria-hidden="true">
                   <svg className="w-5 h-5"><use href={`/icons.svg#${item.iconId}`} /></svg>
                 </span>
@@ -363,15 +364,12 @@ function AppLayout() {
           ))}
         </nav>
 
-        {/* SidebarWidgets — hide when collapsed */}
         <div className={`transition-all duration-300 ${collapsed ? "opacity-0 hidden" : "opacity-100"}`}>
           <SidebarWidgets />
         </div>
       </aside>
 
-      {/* Content area */}
       <div className="flex-1 flex flex-col min-w-0 bg-os-bg/95 relative overflow-hidden">
-        {/* Mobile header */}
         <header className="md:hidden flex items-center justify-between px-5 py-4 border-b border-os-border bg-os-card/50 backdrop-blur-md z-30 relative">
           <div className="flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" aria-hidden="true"></span>
@@ -381,7 +379,6 @@ function AppLayout() {
           </div>
           
           <div className="flex items-center gap-3">
-            {/* ✅ بچ ۷۱: Notification Bell */}
             <div className="relative" ref={notifRef}>
               <button 
                 onClick={() => setIsNotifOpen(!isNotifOpen)}
@@ -443,7 +440,6 @@ function AppLayout() {
           </div>
         </header>
 
-        {/* ✅ بچ ۷۴: بنر هشدار بکاپ قدیمی (Desktop) */}
         {backupStale && (
           <div className="mx-4 mt-3 md:mx-8 md:mt-5 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
@@ -471,7 +467,6 @@ function AppLayout() {
           </div>
         )}
 
-        {/* ✅ بچ ۷۸: Offline Indicator Banner */}
         {!isOnline && (
           <div className="mx-4 mt-2 md:mx-8 md:mt-3 bg-red-500/10 border border-red-500/30 rounded-lg p-2 flex items-center justify-center gap-2 shrink-0 animate-fade-in">
             <span className="text-red-400 text-sm" aria-hidden="true">📡❌</span>
@@ -479,8 +474,6 @@ function AppLayout() {
           </div>
         )}
 
-        {/* Batch 31 & 38: Main content with fade transition + focus management + skip link target */}
-        {/* ✅ بچ ۷۹: اضافه شدن will-change-opacity برای روان‌تر شدن انیمیشن موبایل */}
         <main
           ref={mainRef}
           id="main-content"
@@ -502,7 +495,6 @@ function AppLayout() {
           </div>
         </main>
 
-        {/* Mobile bottom nav */}
         <nav className="md:hidden fixed bottom-4 left-4 right-4 bg-os-card/80 backdrop-blur-xl border border-os-border rounded-2xl flex justify-around items-center h-16 z-40 shadow-xl shadow-black/50" role="navigation" aria-label="ناوبری موبایل">
           <div className="flex w-full h-full px-2">
             {navItems.map((item) => (
@@ -520,7 +512,6 @@ function AppLayout() {
                 }
                 aria-label={item.ariaLabel}
               >
-                {/* Batch 65: SVG Sprite Render Mobile */}
                 <span className="flex items-center" aria-hidden="true">
                   <svg className="w-5 h-5"><use href={`/icons.svg#${item.iconId}`} /></svg>
                 </span>
@@ -538,10 +529,6 @@ function AppLayout() {
 }
 
 export default function App() {
-  // ═══════════════════════════════════════════
-  // بچ ۶۶ — Theme Toggle State & Sync
-  // ═══════════════════════════════════════════
-
   const [theme, setTheme] = useState(() => {
     const saved = localStorage.getItem("mohammados_theme") || "system";
     const root = document.documentElement;
