@@ -13,12 +13,8 @@ const timeToMinutes = (timeStr) => {
   return h * 60 + m;
 };
 
-const dayNamesEn = [
-  "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
-];
-const dayNamesFa = [
-  "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه",
-];
+const dayNamesEn = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+const dayNamesFa = ["یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه"];
 const weekDaysShort = ["ش", "ی", "د", "س", "چ", "پ", "ج"];
 const satToSunMap = [6, 0, 1, 2, 3, 4, 5];
 
@@ -42,8 +38,9 @@ function getWeekDates(referenceDate = new Date(), offset = 0) {
 
 export default function SchedulePage() {
   const navigate = useNavigate();
-
   const [currentTime, setCurrentTime] = useState(new Date(nowMs()));
+  const [error, setError] = useState(null);
+  const [icsStatus, setIcsStatus] = useState("");
 
   const todayDateKey = useMemo(() => {
     const d = new Date(currentTime);
@@ -56,10 +53,8 @@ export default function SchedulePage() {
   }, [currentTime]);
 
   const [schedule, setSchedule] = useState([]);
-  const [error, setError] = useState(null);
   const [isSaved, setIsSaved] = useState(false);
   const [weekStatus, setWeekStatus] = useState([]);
-
   const [selectedIndex, setSelectedIndex] = useState(todayIdxSatStart);
   const [weekOffset, setWeekOffset] = useState(0);
 
@@ -104,21 +99,13 @@ export default function SchedulePage() {
             try {
               const checkDate = new Date(dateKey + "T00:00:00");
               checkDate.setHours(0, 0, 0, 0);
-
               const dayEn = dayNamesEn[satToSunMap[idx]];
               
-              if (dayEn === "friday") {
-                return { dateKey, status: "rest", done: 0, total: 0, fullDay: false };
-              }
-
-              if (checkDate > today) {
-                return { dateKey, status: "future", done: 0, total: 0, fullDay: false };
-              }
+              if (dayEn === "friday") return { dateKey, status: "rest", done: 0, total: 0, fullDay: false };
+              if (checkDate > today) return { dateKey, status: "future", done: 0, total: 0, fullDay: false };
 
               const log = await DayLogRepository.getOrCreateByDate(dateKey, dayEn);
-              if (!log) {
-                return { dateKey, status: "none", done: 0, total: 0, fullDay: false };
-              }
+              if (!log) return { dateKey, status: "none", done: 0, total: 0, fullDay: false };
 
               const total = log.entries.length;
               const done = log.entries.filter((e) => e.done).length;
@@ -128,7 +115,6 @@ export default function SchedulePage() {
               else if (log.fullDay) status = "full";
               else if (done > 0) status = "partial";
               else if (checkDate.getTime() === today.getTime()) status = "active";
-              else status = "none";
 
               return { dateKey, status, done: done || 0, total: total || 0, fullDay: log.fullDay };
             } catch {
@@ -146,9 +132,7 @@ export default function SchedulePage() {
 
   const weeklySummary = useMemo(() => {
     if (weekStatus.length === 0) return null;
-    const scoringDays = weekStatus.filter((d, idx) => 
-      dayNamesEn[satToSunMap[idx]] !== "friday"
-    );
+    const scoringDays = weekStatus.filter((d, idx) => dayNamesEn[satToSunMap[idx]] !== "friday");
     return {
       full: scoringDays.filter((d) => d.status === "full").length,
       partial: scoringDays.filter((d) => d.status === "partial").length,
@@ -190,6 +174,22 @@ export default function SchedulePage() {
     rest: { color: "#8B5CF6", label: "Rest Day" },
   };
 
+  const handleExportIcs = async () => {
+    setIcsStatus("در حال ساخت فایل تقویم...");
+    try {
+      await exportScheduleToIcs();
+      setIcsStatus("✅ فایل .ICS با موفقیت دانلود شد!");
+    } catch (err) {
+      if (err.message === "NO_SCHEDULE_DATA") {
+        setIcsStatus("❌ هیچ برنامه‌ای برای خروجی وجود ندارد.");
+      } else {
+        setIcsStatus("❌ خطا در ساخت فایل: " + err.message);
+      }
+    } finally {
+      setTimeout(() => setIcsStatus(""), 4000);
+    }
+  };
+
   return (
     <div className="max-w-3xl mx-auto p-6 font-vazir rtl text-os-text">
       <div className="flex flex-col items-center mb-8">
@@ -208,19 +208,13 @@ export default function SchedulePage() {
       {error && <div className="bg-red-500/10 border border-red-500/50 text-red-400 p-3 rounded-lg mb-6 text-center text-sm">{error}</div>}
 
       <div className="flex justify-between items-center mb-4 bg-os-card border border-os-border rounded-lg p-3">
-        <button
-          onClick={() => setWeekOffset((o) => o - 1)}
-          className="text-xs font-mono text-os-text/60 hover:text-os-accent transition px-3 py-1 rounded border border-os-border/50 hover:border-os-accent"
-        >
+        <button onClick={() => setWeekOffset((o) => o - 1)} className="text-xs font-mono text-os-text/60 hover:text-os-accent transition px-3 py-1 rounded border border-os-border/50 hover:border-os-accent">
           ← هفته قبل
         </button>
         <span className="text-sm font-bold font-mono text-os-text">
           {weekOffset === 0 ? "📅 این هفته" : weekOffset === 1 ? "📅 هفته بعد" : weekOffset === -1 ? "📅 هفته قبل" : `📅 هفته ${weekOffset > 0 ? "+" : ""}${weekOffset}`}
         </span>
-        <button
-          onClick={() => setWeekOffset((o) => o + 1)}
-          className="text-xs font-mono text-os-text/60 hover:text-os-accent transition px-3 py-1 rounded border border-os-border/50 hover:border-os-accent"
-        >
+        <button onClick={() => setWeekOffset((o) => o + 1)} className="text-xs font-mono text-os-text/60 hover:text-os-accent transition px-3 py-1 rounded border border-os-border/50 hover:border-os-accent">
           هفته بعد →
         </button>
       </div>
@@ -249,10 +243,7 @@ export default function SchedulePage() {
       <div className="mb-8 p-4 bg-os-card border border-os-border rounded-lg">
         <div className="flex justify-between items-center mb-3">
           <h3 className="text-sm font-mono text-os-accent text-left">[ ◈ ] WEEK CONSOLE</h3>
-          <button
-            onClick={() => navigate(`/?date=${selectedDateKey}`)}
-            className="text-[10px] font-mono text-os-accent border border-os-accent/30 px-2 py-1 rounded hover:bg-os-accent/10 transition"
-          >
+          <button onClick={() => navigate(`/?date=${selectedDateKey}`)} className="text-[10px] font-mono text-os-accent border border-os-accent/30 px-2 py-1 rounded hover:bg-os-accent/10 transition">
             مشاهده در Today →
           </button>
         </div>
@@ -266,20 +257,12 @@ export default function SchedulePage() {
                 key={day.dateKey}
                 onClick={() => setSelectedIndex(index)}
                 className={`flex flex-col items-center gap-1 p-2 rounded-lg border transition-all hover:scale-105 ${
-                  isSelected
-                    ? "ring-2 ring-os-accent border-os-accent bg-os-accent/10 shadow-[0_0_10px_rgba(245,166,35,0.15)]"
-                    : isToday
-                      ? "border-os-accent/50 bg-os-accent/5"
-                      : "border-os-border/50 bg-os-bg/50 hover:border-os-border"
+                  isSelected ? "ring-2 ring-os-accent border-os-accent bg-os-accent/10 shadow-[0_0_10px_rgba(245,166,35,0.15)]" : isToday ? "border-os-accent/50 bg-os-accent/5" : "border-os-border/50 bg-os-bg/50 hover:border-os-border"
                 }`}
                 title={`${day.dateKey} — ${cfg.label} (${day.done}/${day.total})`}
               >
                 <span className="text-[10px] font-mono text-os-text/50">{weekDaysShort[index]}</span>
-                <span 
-                  className="w-5 h-5 rounded-full inline-block"
-                  style={{ backgroundColor: cfg.color }}
-                  aria-hidden="true"
-                />
+                <span className="w-5 h-5 rounded-full inline-block" style={{ backgroundColor: cfg.color }} aria-hidden="true" />
                 <span className="text-[9px] font-mono text-os-text/40">{day.done}/{day.total}</span>
                 {isToday && <span className="w-1 h-1 rounded-full bg-os-accent mt-0.5"></span>}
               </button>
@@ -311,11 +294,7 @@ export default function SchedulePage() {
               <div
                 key={`${block.title}-${block.startTime}-${index}`}
                 className={`flex items-center bg-os-card border border-os-border rounded-lg overflow-hidden transition-all duration-500 ${
-                  isActive
-                    ? "ring-1 ring-os-accent border-os-accent/40 shadow-[0_0_20px_rgba(245,166,35,0.1)] scale-[1.01]"
-                    : isPast
-                      ? "opacity-30 grayscale-[0.5]"
-                      : "opacity-90"
+                  isActive ? "ring-1 ring-os-accent border-os-accent/40 shadow-[0_0_20px_rgba(245,166,35,0.1)] scale-[1.01]" : isPast ? "opacity-30 grayscale-[0.5]" : "opacity-90"
                 }`}
               >
                 <div className="w-1.5 self-stretch" style={{ backgroundColor: cfg.color }}></div>
@@ -325,9 +304,7 @@ export default function SchedulePage() {
                 </div>
                 <div className="flex-1 px-5 py-4 flex items-center justify-between">
                   <div>
-                    <h3 className={`text-base font-bold ${isActive ? "text-os-accent" : "text-os-text"}`}>
-                      {block.title || block.name || "بدون عنوان"}
-                    </h3>
+                    <h3 className={`text-base font-bold ${isActive ? "text-os-accent" : "text-os-text"}`}>{block.title || block.name || "بدون عنوان"}</h3>
                     {isActive && (
                       <div className="flex items-center gap-1 mt-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-os-accent animate-ping"></span>
@@ -335,10 +312,7 @@ export default function SchedulePage() {
                       </div>
                     )}
                   </div>
-                  <span
-                    className="text-[9px] font-bold px-2.5 py-1 rounded border"
-                    style={{ color: cfg.color, borderColor: `${cfg.color}44`, backgroundColor: cfg.bg }}
-                  >
+                  <span className="text-[9px] font-bold px-2.5 py-1 rounded border" style={{ color: cfg.color, borderColor: `${cfg.color}44`, backgroundColor: cfg.bg }}>
                     {cfg.label}
                   </span>
                 </div>
@@ -353,14 +327,14 @@ export default function SchedulePage() {
         )}
       </div>
 
-      {/* Actions */}
       <div className="space-y-4 border-t border-os-border pt-8">
         <button
-          onClick={exportScheduleToIcs}
+          onClick={handleExportIcs}
           className="w-full p-3 rounded-md font-mono text-sm border border-os-border text-os-text hover:bg-os-card transition flex items-center justify-center gap-2"
         >
           [ ⬇ ] EXPORT WEEK TO .ICS
         </button>
+        {icsStatus && <p className="text-center text-xs text-os-accent font-mono">{icsStatus}</p>}
       </div>
     </div>
   );
