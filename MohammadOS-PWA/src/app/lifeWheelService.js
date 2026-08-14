@@ -1,4 +1,6 @@
+// src/app/lifeWheelService.js
 import { db } from "../db/database";
+import { getISOWeekRange } from "../utils/date";
 
 export const LIFE_WHEEL_DIMENSIONS = [
   { id: "career", label: "مسیر شغلی" },
@@ -12,14 +14,27 @@ export const LIFE_WHEEL_DIMENSIONS = [
 const DIMENSION_IDS = LIFE_WHEEL_DIMENSIONS.map((dimension) => dimension.id);
 const AUTO_EMPTY_DIMENSIONS = new Set(["relationships", "recreation"]);
 
-function clampScore(value) {
-  const numericValue = Number(value);
-
-  if (Number.isNaN(numericValue)) {
-    return null;
+function normalizeSelfScore(value) {
+  if (value === null || value === undefined) {
+    return { valid: true, value: null };
   }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed === "") {
+      return { valid: true, value: null };
+    }
+    value = trimmed;
+  }
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue) || Number.isNaN(numericValue)) {
+    return { valid: false, value: null };
+  }
+  return { valid: true, value: Math.min(10, Math.max(0, numericValue)) };
+}
 
-  return Math.min(10, Math.max(0, numericValue));
+function clampScore(value) {
+  const normalized = normalizeSelfScore(value);
+  return normalized.value;
 }
 
 function roundScore(value) {
@@ -29,40 +44,41 @@ function roundScore(value) {
 function normalizeManualScores(rawScores = {}) {
   return DIMENSION_IDS.reduce((scores, dimensionId) => {
     const normalizedValue = clampScore(rawScores[dimensionId]);
-
     if (normalizedValue !== null) {
       scores[dimensionId] = normalizedValue;
+    } else {
+      scores[dimensionId] = null;
     }
-
     return scores;
   }, {});
 }
 
-function calculateHabitDimensionScores(habits = []) {
+function calculateHabitDimensionScores(dayLogs = []) {
+  if (!Array.isArray(dayLogs)) dayLogs = [];
   const grouped = new Map();
 
-  habits.forEach((habit) => {
-    const dimensionId = habit?.lifeWheelDimension;
-    if (!dimensionId || !DIMENSION_IDS.includes(dimensionId)) {
-      return;
-    }
+  dayLogs.forEach((log) => {
+    const entries = Array.isArray(log.entries) ? log.entries : [];
+    entries.forEach((entry) => {
+      if (entry?.category !== "habit") return;
 
-    const weight = Number(habit?.lifeWheelWeight ?? 1);
-    const normalizedWeight =
-      Number.isFinite(weight) && weight > 0 ? weight : 1;
+      const dimensionId = entry?.domain;
+      if (!dimensionId || !DIMENSION_IDS.includes(dimensionId)) return;
 
-    const current = grouped.get(dimensionId) ?? {
-      totalWeight: 0,
-      completedWeight: 0,
-    };
+      const weight = entry.isCritical ? 2 : 1;
+      const current = grouped.get(dimensionId) ?? {
+        totalWeight: 0,
+        doneWeight: 0,
+      };
 
-    current.totalWeight += normalizedWeight;
+      current.totalWeight += weight;
 
-    if (habit?.completedToday || habit?.completed === true) {
-      current.completedWeight += normalizedWeight;
-    }
+      if (entry.done === true) {
+        current.doneWeight += weight;
+      }
 
-    grouped.set(dimensionId, current);
+      grouped.set(dimensionId, current);
+    });
   });
 
   return DIMENSION_IDS.reduce((scores, dimensionId) => {
@@ -74,97 +90,15 @@ function calculateHabitDimensionScores(habits = []) {
     }
 
     scores[dimensionId] = roundScore(
-      (totals.completedWeight / totals.totalWeight) * 10
+      (totals.doneWeight / totals.totalWeight) * 10
     );
     return scores;
   }, {});
 }
 
-function calculateCourseDimensionScores(courses = [], dayLogs = []) {
-  const logsByCourseId = new Map();
-
-  dayLogs.forEach((log) => {
-    const courseId = log?.courseId;
-    if (!courseId) {
-      return;
-    }
-
-    const current = logsByCourseId.get(courseId) ?? {
-      totalMinutes: 0,
-      completedMinutes: 0,
-    };
-
-    const minutes = Number(log?.minutes ?? log?.duration ?? 0);
-    const normalizedMinutes =
-      Number.isFinite(minutes) && minutes > 0 ? minutes : 0;
-
-    current.totalMinutes += normalizedMinutes;
-
-    if (log?.completed === true || log?.done === true) {
-      current.completedMinutes += normalizedMinutes;
-    }
-
-    logsByCourseId.set(courseId, current);
-  });
-
-  const grouped = new Map();
-
-  courses.forEach((course) => {
-    const dimensionId = course?.lifeWheelDimension;
-    if (!dimensionId || !DIMENSION_IDS.includes(dimensionId)) {
-      return;
-    }
-
-    const current = grouped.get(dimensionId) ?? [];
-    current.push(course);
-    grouped.set(dimensionId, current);
-  });
-
+function mergeAutoScores(habitScores) {
   return DIMENSION_IDS.reduce((scores, dimensionId) => {
-    const dimensionCourses = grouped.get(dimensionId) ?? [];
-
-    if (dimensionCourses.length === 0) {
-      scores[dimensionId] = null;
-      return scores;
-    }
-
-    let totalMinutes = 0;
-    let completedMinutes = 0;
-
-    dimensionCourses.forEach((course) => {
-      const logStats = logsByCourseId.get(course.id);
-
-      if (logStats) {
-        totalMinutes += logStats.totalMinutes;
-        completedMinutes += logStats.completedMinutes;
-      }
-    });
-
-    if (totalMinutes <= 0) {
-      scores[dimensionId] = null;
-      return scores;
-    }
-
-    scores[dimensionId] = roundScore((completedMinutes / totalMinutes) * 10);
-    return scores;
-  }, {});
-}
-
-function mergeAutoScores(habitScores, courseScores) {
-  return DIMENSION_IDS.reduce((scores, dimensionId) => {
-    const values = [habitScores[dimensionId], courseScores[dimensionId]].filter(
-      (value) => typeof value === "number"
-    );
-
-    if (values.length === 0) {
-      scores[dimensionId] = null;
-      return scores;
-    }
-
-    const average =
-      values.reduce((sum, value) => sum + value, 0) / values.length;
-
-    scores[dimensionId] = roundScore(average);
+    scores[dimensionId] = habitScores[dimensionId] ?? null;
     return scores;
   }, {});
 }
@@ -174,11 +108,16 @@ export function calculateLifeWheelScores({
   courses = [],
   dayLogs = [],
   manualScores = {},
-}) {
+} = {}) {
+  // Reserved for future product rules that connect learning/career scoring.
+  void habits;
+  void courses;
+
+  if (!Array.isArray(dayLogs)) dayLogs = [];
+
   const normalizedManualScores = normalizeManualScores(manualScores);
-  const habitScores = calculateHabitDimensionScores(habits);
-  const courseScores = calculateCourseDimensionScores(courses, dayLogs);
-  const autoScores = mergeAutoScores(habitScores, courseScores);
+  const habitScores = calculateHabitDimensionScores(dayLogs);
+  const autoScores = mergeAutoScores(habitScores);
 
   return DIMENSION_IDS.reduce((scores, dimensionId) => {
     const auto = autoScores[dimensionId];
@@ -187,7 +126,7 @@ export function calculateLifeWheelScores({
     let final = null;
 
     if (typeof auto === "number" && typeof manual === "number") {
-      final = roundScore((auto + manual) / 2);
+      final = roundScore(auto * 0.6 + manual * 0.4);
     } else if (typeof auto === "number") {
       final = auto;
     } else if (typeof manual === "number") {
@@ -206,18 +145,51 @@ export function calculateLifeWheelScores({
   }, {});
 }
 
-export async function getLifeWheelManualScores() {
-  const settings = await db.settings.get("lifeWheelManualScores");
-  return normalizeManualScores(settings?.value ?? {});
+/**
+ * دریافت مقادیر امتیازدهی دستی مربوط به یک دوره زمانی مشخص
+ * @param {string} periodKey کلید دوره زمانی مثل 2026-W29
+ */
+export async function getLifeWheelManualScores(periodKey) {
+  if (!periodKey) return {};
+  try {
+    const record = await db.lifeWheelScores.get(periodKey);
+    return record?.scores || {};
+  } catch (error) {
+    console.error("Error reading life wheel scores from Dexie:", error);
+    return {};
+  }
 }
 
-export async function saveLifeWheelManualScores(manualScores) {
-  const normalizedScores = normalizeManualScores(manualScores);
+/**
+ * ذخیره واقعی امتیازهای دستی چرخ زندگی در دیتابیس به همراه ایندکس‌های کامل
+ * @param {string} periodKey کلید دوره زمانی مثل 2026-W29
+ * @param {object} manualScores آبجکت امتیازهای ابعاد
+ */
+export async function saveLifeWheelManualScores(periodKey, manualScores = {}) {
+  if (!periodKey) {
+    throw new Error("Missing periodKey for saving life wheel scores.");
+  }
 
-  await db.settings.put({
-    key: "lifeWheelManualScores",
-    value: normalizedScores,
-  });
+  const normalized = normalizeManualScores(manualScores);
+  const rangeInfo = getISOWeekRange(periodKey);
 
-  return normalizedScores;
+  const documentToPut = {
+    id: periodKey,
+    periodKey,
+    scores: normalized,
+    startDate: rangeInfo.startDate,
+    endDate: rangeInfo.endDate,
+    year: rangeInfo.year,
+    month: rangeInfo.month,
+    week: rangeInfo.week,
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    await db.lifeWheelScores.put(documentToPut);
+    return normalized;
+  } catch (error) {
+    console.error("Error persisting life wheel scores to Dexie:", error);
+    throw error;
+  }
 }

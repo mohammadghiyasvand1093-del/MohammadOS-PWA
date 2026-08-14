@@ -1,7 +1,11 @@
+// src/pages/AddPage.jsx
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { ScheduleRepository } from "../repositories/ScheduleRepository";
+import { CourseRepository } from "../repositories/CourseRepository";
+import { HabitRepository } from "../repositories/HabitRepository";
+import { saveHabit } from "../app/saveHabit";
 import { db } from "../db/database";
-import _ from "lodash";
+import debounce from "lodash.debounce";
 
 const initialCourseState = {
   name: "",
@@ -11,6 +15,34 @@ const initialCourseState = {
   link: "",
   isCritical: false,
 };
+
+// ✅ Batch 57: Default domain changed to discipline
+const initialHabitState = {
+  name: "",
+  domain: "discipline",
+  recurrenceType: "daily",
+  isCritical: false,
+};
+
+// ✅ Batch 57: DOMAINS updated with emojis + colors
+const DOMAINS = [
+  { key: "learning", label: "📚 یادگیری", color: "#4D8EF5" },
+  { key: "fitness", label: "💪 ورزش", color: "#00C878" },
+  { key: "discipline", label: "🎯 انضباط", color: "#F5C542" },
+  { key: "work", label: "💼 کار", color: "#A855F7" },
+  { key: "rest", label: "😴 استراحت", color: "#22D3EE" },
+  { key: "social", label: "🤝 اجتماعی", color: "#F97316" },
+];
+
+// ✅ Batch 76: Habit Templates
+const HABIT_TEMPLATES = [
+  { name: "ورزش صبحگاهی", domain: "fitness", isCritical: true, icon: "🏃" },
+  { name: "مطالعه ۳۰ دقیقه‌ای", domain: "learning", isCritical: false, icon: "📖" },
+  { name: "نوشیدن ۲ لیتر آب", domain: "discipline", isCritical: false, icon: "💧" },
+  { name: "خواب ۸ ساعت", domain: "rest", isCritical: true, icon: "🛌" },
+  { name: "مدیتیشن", domain: "rest", isCritical: false, icon: "🧘" },
+  { name: "مرور برنامه", domain: "discipline", isCritical: true, icon: "📋" },
+];
 
 const days = [
   { key: "sunday", label: "یکشنبه" },
@@ -29,15 +61,47 @@ export default function AddPage() {
 
   const [course, setCourse] = useState(initialCourseState);
 
+  const [courses, setCourses] = useState([]);
+  const [editingCourseId, setEditingCourseId] = useState(null);
+  const [editForm, setEditForm] = useState({});
+
+  const [habits, setHabits] = useState([]);
+  const [habitForm, setHabitForm] = useState(initialHabitState);
+  const [editingHabitId, setEditingHabitId] = useState(null);
+  const [editHabitForm, setEditHabitForm] = useState({});
+
   const markAsTyping = useCallback(() => {
     setDraftStatus((prev) => (prev === "TYPING..." ? prev : "TYPING..."));
   }, []);
 
+  const handleAutosave = useMemo(
+    () =>
+      debounce(async (currentBlocks, currentCourse) => {
+        try {
+          await db.drafts.put({
+            key: `addPage_${selectedDay}`,
+            blocks: currentBlocks,
+            course: currentCourse,
+            timestamp: new Date().toISOString(),
+          });
+          setDraftStatus("DRAFT SAVED");
+        } catch (error) {
+          console.error("Autosave failed:", error);
+          setDraftStatus("SAVE ERROR");
+        }
+      }, 2000),
+    [selectedDay]
+  );
+
   useEffect(() => {
+    let mounted = true;
+    
     async function loadInitialData() {
       setDraftStatus("LOADING DRAFT...");
       try {
         const draft = await db.drafts.get(`addPage_${selectedDay}`);
+        if (!mounted) return;
+        
         if (draft) {
           setBlocks(draft.blocks || []);
           setCourse(draft.course || initialCourseState);
@@ -46,6 +110,8 @@ export default function AddPage() {
         }
 
         const dayData = await ScheduleRepository.getDaySchedule(selectedDay);
+        if (!mounted) return;
+        
         setBlocks(dayData ? dayData.schedule : []);
         setCourse(initialCourseState);
         setDraftStatus("LOADED FROM DB");
@@ -56,27 +122,38 @@ export default function AddPage() {
     }
 
     loadInitialData();
-  }, [selectedDay]);
 
-  const handleAutosave = useMemo(
-    () =>
-      _.debounce(async (currentBlocks, currentCourse) => {
-        try {
-          await db.drafts.put({
-            key: `addPage_${selectedDay}`,
-            blocks: currentBlocks,
-            course: currentCourse,
-            timestamp: new Date().toISOString(),
-          });
-          console.log(`Autosaved draft for ${selectedDay}`);
-          setDraftStatus("DRAFT SAVED");
-        } catch (error) {
-          console.error("Autosave failed:", error);
-          setDraftStatus("SAVE ERROR");
-        }
-      }, 2000),
-    [selectedDay]
-  );
+    return () => {
+      mounted = false;
+      handleAutosave.cancel(); 
+    };
+  }, [selectedDay, handleAutosave]);
+
+  useEffect(() => {
+    loadCourses();
+  }, []);
+
+  async function loadCourses() {
+    try {
+      const data = await CourseRepository.getAll({ sortBy: "name", criticalFirst: true });
+      setCourses(data);
+    } catch (error) {
+      console.error("Failed to load courses:", error);
+    }
+  }
+
+  useEffect(() => {
+    loadHabits();
+  }, []);
+
+  async function loadHabits() {
+    try {
+      const data = await HabitRepository.getAll();
+      setHabits(data);
+    } catch (error) {
+      console.error("Failed to load habits:", error);
+    }
+  }
 
   useEffect(() => {
     if (draftStatus === "LOADING DRAFT..." || draftStatus === "LOAD ERROR") {
@@ -143,15 +220,9 @@ export default function AddPage() {
       await ScheduleRepository.saveDaySchedule(selectedDay, blocks);
       await db.drafts.delete(`addPage_${selectedDay}`);
       setDraftStatus("COMMITTED");
-      alert(
-        `برنامه روز ${
-          days.find((day) => day.key === selectedDay)?.label || selectedDay
-        } با موفقیت در هسته ذخیره شد.`
-      );
     } catch (error) {
       console.error("Failed to save day schedule:", error);
-      setDraftStatus("SAVE ERROR");
-      alert("خطا در ذخیره برنامه روز.");
+      setDraftStatus("ERROR: " + error.message);
     }
   }, [selectedDay, blocks]);
 
@@ -173,32 +244,176 @@ export default function AddPage() {
 
   const saveCourse = useCallback(async () => {
     if (!course.name.trim()) {
-      alert("خطا: نام دوره الزامی است.");
+      setDraftStatus("ERROR: نام دوره الزامی است.");
       return;
     }
 
     try {
-      await db.courses.put({
-        id: crypto.randomUUID(),
+      await CourseRepository.create({
         name: course.name.trim(),
         instructor: course.instructor.trim(),
         totalEpisodes: Number(course.totalEpisodes) || 0,
         currentEpisode: Number(course.currentEpisode) || 0,
         link: course.link.trim(),
         isCritical: course.isCritical,
-        createdAt: new Date().toISOString(),
       });
 
-      alert(`دوره "${course.name}" با موفقیت ثبت شد.`);
       await db.drafts.delete(`addPage_${selectedDay}`);
       setCourse(initialCourseState);
-      setDraftStatus("COURSE SAVED");
+      setDraftStatus("COURSE REGISTERED");
+      loadCourses();
     } catch (error) {
       console.error("Failed to save course:", error);
-      setDraftStatus("SAVE ERROR");
-      alert("خطا در ثبت دوره.");
+      setDraftStatus("ERROR: " + error.message);
     }
   }, [course, selectedDay]);
+
+  const handleAddEpisode = async (courseItem) => {
+    try {
+      await CourseRepository.completeEpisode(courseItem.id, courseItem.currentEpisode + 1);
+      loadCourses();
+    } catch (error) {
+      console.error("Failed to add episode:", error);
+      setDraftStatus("ERROR: " + error.message);
+    }
+  };
+
+  const handleEditClick = (courseItem) => {
+    setEditingCourseId(courseItem.id);
+    setEditForm({ ...courseItem });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingCourseId(null);
+    setEditForm({});
+  };
+
+  const handleSaveEdit = async () => {
+    try {
+      await CourseRepository.update(editingCourseId, {
+        name: editForm.name,
+        instructor: editForm.instructor,
+        totalEpisodes: Number(editForm.totalEpisodes) || 0,
+        currentEpisode: Number(editForm.currentEpisode) || 0,
+        link: editForm.link,
+        isCritical: editForm.isCritical,
+      });
+      setEditingCourseId(null);
+      loadCourses();
+    } catch (error) {
+      console.error("Failed to update course:", error);
+      setDraftStatus("ERROR: " + error.message);
+    }
+  };
+
+  const handleDeleteCourse = async (id) => {
+    if (!window.confirm("آیا مطمئنید؟")) return;
+    try {
+      await CourseRepository.delete(id);
+      loadCourses();
+    } catch (error) {
+      console.error("Failed to delete course:", error);
+      setDraftStatus("ERROR: " + error.message);
+    }
+  };
+
+  const handleEditChange = (field, value) => {
+    setEditForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleEditToggleCritical = () => {
+    setEditForm((prev) => ({ ...prev, isCritical: !prev.isCritical }));
+  };
+
+  // ✅ Batch 76: Apply Template to Habit Form
+  const applyHabitTemplate = useCallback((template) => {
+    setHabitForm((prev) => ({
+      ...prev,
+      name: template.name,
+      domain: template.domain,
+      isCritical: template.isCritical,
+    }));
+    setDraftStatus("TEMPLATE LOADED");
+  }, []);
+
+  const handleRegisterHabit = useCallback(async () => {
+    if (!habitForm.name.trim()) {
+      setDraftStatus("ERROR: نام عادت الزامی است.");
+      return;
+    }
+
+    if (habits.length >= 7) {
+      setDraftStatus("ERROR: سیستم از ۷ عادت همزمان بیشتر را توصیه نمی‌کند. یک عادت قدیمی را غیرفعال کن، سپس عادت جدید اضافه کن.");
+      return;
+    }
+
+    try {
+      await saveHabit({
+        name: habitForm.name.trim(),
+        domain: habitForm.domain,
+        isCritical: habitForm.isCritical,
+        recurrence: {
+          type: habitForm.recurrenceType,
+          ...(habitForm.recurrenceType === "weekly" ? { days: [] } : {}),
+        },
+      });
+      setHabitForm(initialHabitState);
+      setDraftStatus("HABIT REGISTERED");
+      loadHabits();
+    } catch (error) {
+      console.error("Failed to save habit:", error);
+      setDraftStatus("ERROR: " + error.message);
+    }
+  }, [habitForm, habits.length]);
+
+  const handleEditHabitClick = (habit) => {
+    setEditingHabitId(habit.id);
+    setEditHabitForm({
+      name: habit.name || "",
+      domain: habit.domain || "discipline",
+      recurrenceType: habit.recurrence?.type || "daily",
+      isCritical: habit.isCritical || false,
+    });
+  };
+
+  const handleSaveHabitEdit = async () => {
+    try {
+      const existing = await HabitRepository.getById(editingHabitId);
+
+      if (!existing) {
+        setDraftStatus("ERROR: عادت یافت نشد.");
+        setEditingHabitId(null);
+        return;
+      }
+
+      await HabitRepository.save({
+        ...existing,
+        id: editingHabitId,
+        name: editHabitForm.name.trim(),
+        domain: editHabitForm.domain,
+        isCritical: editHabitForm.isCritical,
+        recurrence: editHabitForm.recurrenceType === "weekly"
+          ? { type: "weekly", days: existing.recurrence?.days || [] }
+          : { type: "daily" },
+      });
+      setEditingHabitId(null);
+      loadHabits();
+    } catch (error) {
+      console.error("Failed to update habit:", error);
+      setDraftStatus("ERROR: " + error.message);
+    }
+  };
+
+  const handleDeleteHabit = async (id) => {
+    if (!window.confirm("آیا مطمئنید؟")) return;
+    try {
+      await HabitRepository.delete(id);
+      loadHabits();
+    } catch (error) {
+      console.error("Failed to delete habit:", error);
+      setDraftStatus("ERROR: " + error.message);
+    }
+  };
 
   return (
     <div className="max-w-3xl mx-auto p-4 md:p-8 animate-in fade-in duration-500 text-os-text">
@@ -218,7 +433,7 @@ export default function AddPage() {
 
         <div className="mb-6">
           <label className="text-[10px] font-mono text-os-text/60 block mb-2 uppercase">
-            MISSION DAY:
+            روز مأموریت:
           </label>
           <select
             value={selectedDay}
@@ -264,7 +479,7 @@ export default function AddPage() {
                     className="w-4 h-4 text-os-accent focus:ring-os-accent border-os-border rounded"
                   />
                   <span className="text-sm font-mono text-os-text/70">
-                    CRITICAL MISSION?
+                    ماموریت بحرانی؟
                   </span>
                 </label>
 
@@ -346,7 +561,199 @@ export default function AddPage() {
         </div>
       </section>
 
-      <section className="bg-os-card border border-os-border rounded-xl p-6">
+      <section className="bg-os-card border border-os-border rounded-xl p-6 mb-8">
+        <h3 className="text-sm font-mono text-os-accent mb-6 flex items-center gap-2">
+          [ 🎯 ] HABIT REGISTRY
+        </h3>
+
+        {/* ✅ Batch 76: Habit Templates UI */}
+        <div className="mb-6 p-4 bg-os-bg/30 rounded-lg border border-os-border/50">
+          <label className="text-[10px] font-mono text-os-text/60 block mb-3 uppercase">
+            Habit Templates
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {HABIT_TEMPLATES.map((tpl) => (
+              <button
+                key={tpl.name}
+                onClick={() => applyHabitTemplate(tpl)}
+                className="flex items-center gap-2 px-3 py-1.5 text-xs bg-os-card border border-os-border rounded-lg hover:border-os-accent hover:text-os-accent transition"
+              >
+                <span>{tpl.icon}</span>
+                <span>{tpl.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="text-[10px] font-mono text-os-text/60 block mb-1 uppercase">
+              HABIT NAME
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. Morning Exercise"
+              value={habitForm.name}
+              onChange={(e) => setHabitForm((p) => ({ ...p, name: e.target.value }))}
+              className="w-full bg-os-bg border border-os-border rounded-lg p-3 text-sm text-os-text outline-none focus:border-os-accent placeholder:text-os-text/40"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-[10px] font-mono text-os-text/60 block mb-1 uppercase">
+                DOMAIN
+              </label>
+              <select
+                value={habitForm.domain}
+                onChange={(e) => setHabitForm((p) => ({ ...p, domain: e.target.value }))}
+                className="w-full bg-os-bg border border-os-border rounded-lg p-3 text-sm text-os-text outline-none focus:border-os-accent"
+              >
+                {DOMAINS.map((d) => (
+                  <option key={d.key} value={d.key} style={{ color: d.color }}>{d.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-mono text-os-text/60 block mb-1 uppercase">
+                RECURRENCE
+              </label>
+              <select
+                value={habitForm.recurrenceType}
+                onChange={(e) => setHabitForm((p) => ({ ...p, recurrenceType: e.target.value }))}
+                className="w-full bg-os-bg border border-os-border rounded-lg p-3 text-sm text-os-text outline-none focus:border-os-accent"
+              >
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+              </select>
+            </div>
+          </div>
+
+          <label className="flex items-center gap-2 cursor-pointer mt-2">
+            <input
+              type="checkbox"
+              checked={habitForm.isCritical}
+              onChange={(e) => setHabitForm((p) => ({ ...p, isCritical: e.target.checked }))}
+              className="w-4 h-4 text-os-accent focus:ring-os-accent border-os-border rounded"
+            />
+            <span className="text-sm font-mono text-os-text/70">
+              CRITICAL HABIT? (affects Full Day scoring)
+            </span>
+          </label>
+        </div>
+
+        <button
+          onClick={handleRegisterHabit}
+          className="w-full mt-6 bg-os-accent text-os-bg font-bold py-3 rounded-lg font-mono text-sm hover:opacity-90 transition"
+        >
+          [ REGISTER NEW HABIT ]
+        </button>
+      </section>
+
+      <section className="bg-os-card border border-os-border rounded-xl p-6 mb-8">
+        <h3 className="text-sm font-mono text-os-accent mb-6 flex items-center gap-2">
+          [ 📋 ] HABIT LIST
+        </h3>
+
+        <div className="space-y-3">
+          {habits.length === 0 && (
+            <p className="text-os-text/30 text-xs text-center py-8 font-mono">
+              NO HABITS REGISTERED YET
+            </p>
+          )}
+
+          {habits.map((h) => (
+            <div key={h.id} className="bg-os-bg/50 border border-os-border/50 rounded-lg p-4">
+              {editingHabitId === h.id ? (
+                <div className="space-y-3">
+                  <input
+                    type="text"
+                    value={editHabitForm.name || ""}
+                    onChange={(e) => setEditHabitForm((p) => ({ ...p, name: e.target.value }))}
+                    className="w-full bg-os-card border border-os-border rounded p-2 text-sm text-os-text outline-none focus:border-os-accent"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <select
+                      value={editHabitForm.domain}
+                      onChange={(e) => setEditHabitForm((p) => ({ ...p, domain: e.target.value }))}
+                      className="bg-os-card border border-os-border rounded p-2 text-sm text-os-text outline-none focus:border-os-accent"
+                    >
+                      {DOMAINS.map((d) => (
+                        <option key={d.key} value={d.key} style={{ color: d.color }}>{d.label}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={editHabitForm.recurrenceType}
+                      onChange={(e) => setEditHabitForm((p) => ({ ...p, recurrenceType: e.target.value }))}
+                      className="bg-os-card border border-os-border rounded p-2 text-sm text-os-text outline-none focus:border-os-accent"
+                    >
+                      <option value="daily">Daily</option>
+                      <option value="weekly">Weekly</option>
+                    </select>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editHabitForm.isCritical || false}
+                      onChange={(e) => setEditHabitForm((p) => ({ ...p, isCritical: e.target.checked }))}
+                      className="w-4 h-4 text-os-accent focus:ring-os-accent border-os-border rounded"
+                    />
+                    <span className="text-xs font-mono text-os-text/70">CRITICAL</span>
+                  </label>
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      onClick={handleSaveHabitEdit}
+                      className="flex-1 bg-os-accent/10 border border-os-accent text-os-accent py-2 rounded-lg font-mono text-xs hover:bg-os-accent hover:text-os-bg transition"
+                    >
+                      SAVE
+                    </button>
+                    <button
+                      onClick={() => setEditingHabitId(null)}
+                      className="flex-1 border border-os-border text-os-text/60 py-2 rounded-lg font-mono text-xs hover:bg-os-border/30 transition"
+                    >
+                      CANCEL
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="text-base font-bold text-os-text">{h.name}</span>
+                    {h.isCritical && (
+                      <span className="bg-red-500/20 text-red-400 text-[10px] font-mono px-2 py-0.5 rounded border border-red-500/40">
+                        CRITICAL
+                      </span>
+                    )}
+                    <span className="text-[10px] font-mono text-os-text/50 bg-os-bg/50 px-2 py-0.5 rounded border border-os-border/30">
+                      {DOMAINS.find((d) => d.key === h.domain)?.label || h.domain}
+                    </span>
+                    <span className="text-[10px] font-mono text-os-text/40 uppercase">
+                      {h.recurrence?.type}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleEditHabitClick(h)}
+                      className="border border-os-border text-os-text/70 px-3 py-1.5 rounded text-[10px] font-mono hover:bg-os-border/30 transition"
+                    >
+                      EDIT
+                    </button>
+                    <button
+                      onClick={() => handleDeleteHabit(h.id)}
+                      className="border border-red-500/30 text-red-400 px-3 py-1.5 rounded text-[10px] font-mono hover:bg-red-500/10 transition"
+                    >
+                      DELETE
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="bg-os-card border border-os-border rounded-xl p-6 mb-8">
         <h3 className="text-sm font-mono text-os-accent mb-6 flex items-center gap-2">
           [ 🎓 ] COURSE REGISTRY
         </h3>
@@ -433,7 +840,7 @@ export default function AddPage() {
               className="w-4 h-4 text-os-accent focus:ring-os-accent border-os-border rounded"
             />
             <span className="text-sm font-mono text-os-text/70">
-              CRITICAL COURSE?
+              دوره بحرانی؟
             </span>
           </label>
         </div>
@@ -444,6 +851,141 @@ export default function AddPage() {
         >
           [ REGISTER NEW COURSE ]
         </button>
+      </section>
+
+      <section className="bg-os-card border border-os-border rounded-xl p-6 mt-8">
+        <h3 className="text-sm font-mono text-os-accent mb-6 flex items-center gap-2">
+          [ 📊 ] COURSE PROGRESS
+        </h3>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {courses.length === 0 && (
+            <p className="text-os-text/30 text-xs text-center py-8 font-mono col-span-2">
+              NO COURSES REGISTERED YET
+            </p>
+          )}
+
+          {courses.map((c) => (
+            <div key={c.id} className="bg-os-bg/50 border border-os-border/50 rounded-lg p-4">
+              {editingCourseId === c.id ? (
+                <div className="space-y-3">
+                  <input
+                    type="text"
+                    value={editForm.name || ""}
+                    onChange={(e) => handleEditChange("name", e.target.value)}
+                    placeholder="Course Name"
+                    className="w-full bg-os-card border border-os-border rounded p-2 text-sm text-os-text outline-none focus:border-os-accent"
+                  />
+                  <input
+                    type="text"
+                    value={editForm.instructor || ""}
+                    onChange={(e) => handleEditChange("instructor", e.target.value)}
+                    placeholder="Instructor"
+                    className="w-full bg-os-card border border-os-border rounded p-2 text-sm text-os-text outline-none focus:border-os-accent"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="number"
+                      value={editForm.totalEpisodes || 0}
+                      onChange={(e) => handleEditChange("totalEpisodes", e.target.value)}
+                      placeholder="Total"
+                      className="bg-os-card border border-os-border rounded p-2 text-sm text-os-text outline-none focus:border-os-accent font-mono"
+                    />
+                    <input
+                      type="number"
+                      value={editForm.currentEpisode || 0}
+                      onChange={(e) => handleEditChange("currentEpisode", e.target.value)}
+                      placeholder="Current"
+                      className="bg-os-card border border-os-border rounded p-2 text-sm text-os-text outline-none focus:border-os-accent font-mono"
+                    />
+                  </div>
+                  <input
+                    type="text"
+                    value={editForm.link || ""}
+                    onChange={(e) => handleEditChange("link", e.target.value)}
+                    placeholder="Link"
+                    className="w-full bg-os-card border border-os-border rounded p-2 text-sm text-os-text outline-none focus:border-os-accent font-mono"
+                  />
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editForm.isCritical || false}
+                      onChange={handleEditToggleCritical}
+                      className="w-4 h-4 text-os-accent focus:ring-os-accent border-os-border rounded"
+                    />
+                    <span className="text-xs font-mono text-os-text/70">CRITICAL</span>
+                  </label>
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      onClick={handleSaveEdit}
+                      className="flex-1 bg-os-accent/10 border border-os-accent text-os-accent py-2 rounded-lg font-mono text-xs hover:bg-os-accent hover:text-os-bg transition"
+                    >
+                      SAVE CHANGES
+                    </button>
+                    <button
+                      onClick={handleCancelEdit}
+                      className="flex-1 border border-os-border text-os-text/60 py-2 rounded-lg font-mono text-xs hover:bg-os-border/30 transition"
+                    >
+                      CANCEL
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div className="flex justify-between items-start mb-2">
+                    <h4 className="text-base font-bold text-os-text">{c.name}</h4>
+                    {c.isCritical && (
+                      <span className="bg-red-500/20 text-red-400 text-[10px] font-mono px-2 py-0.5 rounded border border-red-500/40">
+                        CRITICAL
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-os-text/60 mb-3">Instructor: {c.instructor || "N/A"}</p>
+
+                  <div className="w-full h-2 bg-os-bg rounded-full overflow-hidden mb-1">
+                    <div
+                      className="bg-os-accent h-full rounded-full transition-all duration-500"
+                      style={{ width: `${c.progress}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[10px] font-mono text-os-text/60 mb-4">
+                    <span>{c.progress}%</span>
+                    <span>EP: {c.currentEpisode} / {c.totalEpisodes}</span>
+                  </div>
+
+                  <div className="flex gap-2 flex-wrap">
+                    <button
+                      onClick={() => handleAddEpisode(c)}
+                      className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded text-[10px] font-mono hover:bg-emerald-500/20 transition"
+                    >
+                      +1 EP
+                    </button>
+                    <button
+                      onClick={() => handleEditClick(c)}
+                      className="border border-os-border text-os-text/70 px-3 py-1.5 rounded text-[10px] font-mono hover:bg-os-border/30 transition"
+                    >
+                      EDIT
+                    </button>
+                    <button
+                      onClick={() => handleDeleteCourse(c.id)}
+                      className="border border-red-500/30 text-red-400 px-3 py-1.5 rounded text-[10px] font-mono hover:bg-red-500/10 transition"
+                    >
+                      DELETE
+                    </button>
+                    {c.link && (
+                      <button
+                        onClick={() => window.open(c.link, '_blank', 'noopener,noreferrer')}
+                        className="border border-sky-500/30 text-sky-400 px-3 py-1.5 rounded text-[10px] font-mono hover:bg-sky-500/10 transition"
+                      >
+                        🔗 LINK
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </section>
     </div>
   );

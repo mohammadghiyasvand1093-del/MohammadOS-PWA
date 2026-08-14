@@ -1,11 +1,20 @@
+// src/domain/logCalculator.js
+
+/**
+ * LOCKED FORMULA CONSTANTS (V1 Stable)
+ * EMA_ALPHA: 0.1 (Exponential Moving Average factor for habit strength)
+ * FULL_DAY_THRESHOLD: 90 (Minimum rawScore required for fullDay status)
+ * These values are strictly locked and must not be changed without architectural approval.
+ */
+const EMA_ALPHA = 0.1;
+const FULL_DAY_THRESHOLD = 90;
+
 const WEIGHTS = {
   critical: 3,
   high: 2,
   medium: 1,
   low: 0.5,
 };
-
-const EMA_ALPHA = 0.1;
 
 function roundToTwo(value) {
   return Math.round(value * 100) / 100;
@@ -40,7 +49,8 @@ export function calculateDayLogMetrics(entries = []) {
     criticalEntries.length === 0 ||
     criticalEntries.every((entry) => Boolean(entry.done));
 
-  const fullDay = allCriticalDone && rawScore >= 90;
+  // Applied locked threshold
+  const fullDay = allCriticalDone && rawScore >= FULL_DAY_THRESHOLD;
 
   return {
     totalWeight,
@@ -88,6 +98,7 @@ export function calculateHabitUpdates(dayLog, habits = []) {
         : currentStrength
       : currentStrength;
 
+    // Applied locked EMA Alpha
     const newStrength = roundToTwo(
       EMA_ALPHA * doneSignal + (1 - EMA_ALPHA) * baselineStrength
     );

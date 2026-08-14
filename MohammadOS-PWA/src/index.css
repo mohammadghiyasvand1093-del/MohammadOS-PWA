@@ -1,17 +1,39 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Vazirmatn:wght@400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
 @theme {
-  /* تعریف پلت رنگی اختصاصی "کنسول ماموریت" در هسته Tailwind */
+  /* تعریف پالت رنگی اختصاصی "کنسول ماموریت" در هسته Tailwind */
   --color-os-bg: #0B0F14;
   --color-os-text: #E8ECF1;
   --color-os-accent: #F5A623;
   --color-os-border: #232B36;
   --color-os-card: #131922;
   --color-os-steel: #4FA8E0;
-  
+
   /* تعریف فونت‌های سیستم */
   --font-vazir: "Vazirmatn", ui-sans-serif, system-ui;
   --font-mono: "JetBrains Mono", monospace;
+}
+
+/* ═══════════════════════════════════════════
+   بچ ۶۶ — Theme Toggle (Dark / Light / System)
+   متغیرهای CSS در لایه unlayered — بالاترین اولویت
+   ═══════════════════════════════════════════ */
+
+/* Dark = پیش‌فرض (همان مقادیر @theme) */
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* Light — بازنویسی کامل پالت */
+[data-theme="light"] {
+  color-scheme: light;
+  --color-os-bg: #F1F5F9;       /* slate-100 */
+  --color-os-card: #FFFFFF;      /* white */
+  --color-os-border: #E2E8F0;   /* slate-200 */
+  --color-os-text: #1E293B;     /* slate-800 */
+  --color-os-accent: #C2410C;   /* orange-700 — کنتراست 4.8:1 روی سفید */
+  --color-os-steel: #0369A1;    /* sky-700 */
 }
 
 /* بهینه‌سازی لایه Base با متد جدید */
@@ -46,24 +68,8 @@
     display: flex;
     flex-direction: column;
   }
-}
 
-/* لایه کامپوننت‌های سفارشی با استفاده از توابع مدرن CSS */
-@layer components {
-  .os-card {
-    @apply bg-os-card border border-os-border rounded-xl p-6 transition-all duration-300;
-    &:hover {
-      @apply border-os-accent/50 shadow-[0_0_20px_rgba(245,166,35,0.1)];
-    }
-  }
-
-  .os-title {
-    @apply text-5xl font-extrabold tracking-tight my-8 text-white;
-  }
-}
-
-/* اسکرول‌بار اختصاصی و مدرن (Minimalist Dark) */
-@utility custom-scrollbar {
+  /* اعمال اسکرول‌بار اختصاصی مستقیماً در پایه */
   ::-webkit-scrollbar {
     width: 5px;
   }
@@ -73,15 +79,81 @@
   ::-webkit-scrollbar-thumb {
     background: var(--color-os-border);
     border-radius: 10px;
-    &:hover {
-      background: var(--color-os-accent);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-os-accent);
+  }
+
+  /* ═══════════════════════════════════════════
+     بچ ۶۶ — Smooth Theme Transition
+     فقط روی رنگ/پس‌زمینه/بُردِر — تداخل با transform/opacity ندارد
+     عناصر دارای کلاس Tailwind transition-* اولویت بالاتر دارند
+     ═══════════════════════════════════════════ */
+  @media (prefers-reduced-motion: no-preference) {
+    html,
+    html * {
+      transition-property: background-color, border-color, color, fill, stroke;
+      transition-duration: 0.3s;
+      transition-timing-function: ease;
     }
   }
 }
 
-/* اعمال اسکرول‌بار به کل سند */
-@layer base {
-  html {
-    @apply custom-scrollbar;
+/* لایه کامپوننت‌های سفارشی با استفاده از CSS خالص (بدون @apply) */
+@layer components {
+  .os-card {
+    background-color: var(--color-os-card);
+    border: 1px solid var(--color-os-border);
+    border-radius: 0.75rem; /* rounded-xl */
+    padding: 1.5rem; /* p-6 */
+    transition: all 0.3s ease-in-out; /* transition-all duration-300 */
+
+    &:hover {
+      border-color: color-mix(in srgb, var(--color-os-accent) 50%, transparent);
+      /* بچ ۶۶: shadow با color-mix برای تطبیق با تم فعال */
+      box-shadow: 0 0 20px color-mix(in srgb, var(--color-os-accent) 10%, transparent);
+    }
+  }
+
+  .os-title {
+    font-size: 3rem; /* text-5xl */
+    line-height: 1;
+    font-weight: 800; /* font-extrabold */
+    letter-spacing: -0.025em; /* tracking-tight */
+    margin: 2rem 0; /* my-8 */
+    /* بچ ۶۶: استفاده از متغیر به جای رنگ ثابت سفید */
+    color: var(--color-os-text);
   }
 }
+
+/* رفع بهم ریختگی Legend در کتابخانه react-activity-calendar */
+.heatmap-rtl-fix [class*="react-activity-calendar"] [class*="legend"] > span:last-child,
+.heatmap-rtl-fix [class*="react-activity-calendar__legend"] > span:last-child {
+  display: none !important;
+}
+.heatmap-rtl-fix [class*="react-activity-calendar"] [class*="legend"],
+.heatmap-rtl-fix [class*="react-activity-calendar__legend"] {
+  flex-direction: row-reverse !important;
+}
+
+/* ═══════════════════════════════════════════
+   بچ ۶۶ — Light Mode Utility Color Overrides
+   تیره‌سازی رنگ‌های Tailwind برای کنتراست روی پس‌زمینه روشن
+   Specificity: (0,2,0) > Tailwind utility (0,1,0)
+   ═══════════════════════════════════════════ */
+[data-theme="light"] .text-amber-400   { color: #B45309; }
+[data-theme="light"] .text-emerald-400 { color: #047857; }
+[data-theme="light"] .text-red-400     { color: #DC2626; }
+[data-theme="light"] .text-sky-500     { color: #0369A1; }
+[data-theme="light"] .bg-amber-400     { background-color: #D97706; }
+[data-theme="light"] .bg-emerald-500   { background-color: #059669; }
+[data-theme="light"] .border-amber-500\/30 { border-color: rgba(180, 83, 9, 0.3); }
+[data-theme="light"] .border-amber-500\/50 { border-color: rgba(180, 83, 9, 0.5); }
+[data-theme="light"] .bg-amber-500\/5    { background-color: rgba(180, 83, 9, 0.05); }
+[data-theme="light"] .bg-amber-500\/10   { background-color: rgba(180, 83, 9, 0.1); }
+[data-theme="light"] .border-red-500\/30 { border-color: rgba(220, 38, 38, 0.3); }
+[data-theme="light"] .border-red-500\/50 { border-color: rgba(220, 38, 38, 0.5); }
+[data-theme="light"] .bg-red-500\/30     { background-color: rgba(220, 38, 38, 0.15); }
+[data-theme="light"] .bg-sky-500\/10     { background-color: rgba(3, 105, 161, 0.1); }
+[data-theme="light"] .border-sky-500     { border-color: #0369A1; }
+[data-theme="light"] .shadow-black\/50   { --tw-shadow-color: rgba(0, 0, 0, 0.15); }

@@ -1,11 +1,22 @@
 import { db } from "../db/database";
 import { logger } from "./logger";
 
+/**
+ * UUID generator with fallback for non-secure contexts (HTTP)
+ * crypto.randomUUID requires HTTPS or localhost.
+ */
+function generateId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
 export const eventPublisher = {
   async publish({ type, aggregate, aggregateId = null, payload = {}, version = 1 }) {
     try {
       const event = {
-        id: crypto.randomUUID(), // <--- این خط اضافه شد تا کلید اصلی تامین شود
+        id: generateId(),
         type,
         aggregate,
         aggregateId,

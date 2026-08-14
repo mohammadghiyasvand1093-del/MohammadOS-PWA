@@ -1,7 +1,6 @@
 import { HabitRepository } from "../repositories/HabitRepository";
 import { executeAction } from "../utils/actionExecutor";
 import { EVENT_TYPES } from "../domain/events/eventTypes";
-import { useTodayStore } from "../store/todayStore";
 
 export async function deleteHabit(id) {
   return executeAction({
@@ -10,9 +9,6 @@ export async function deleteHabit(id) {
 
     execute: async () => {
       await HabitRepository.delete(id);
-
-      useTodayStore.getState().removeHabit(id);
-
       return id;
     },
 

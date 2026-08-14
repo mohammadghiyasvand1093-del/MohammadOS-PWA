@@ -10,34 +10,25 @@ export async function saveHabit(habitData) {
   const now = new Date();
   const dateKey = todayKey();
 
+  // FIX: domain هیچ‌وقت null نمی‌شود — "general" fallback
+  const domain =
+    habitData.domain === "none" || !habitData.domain
+      ? "general"
+      : habitData.domain;
+
   const newHabit = {
     id: crypto.randomUUID(),
     name: habitData.name,
-    domain: habitData.domain || "general",
+    domain,
     recurrence: habitData.recurrence || { type: "daily" },
-
+    isCritical: Boolean(habitData.isCritical),
     done: false,
-
-    /**
-     * IMPORTANT:
-     * date is a day-level field, so it must be YYYY-MM-DD.
-     * createdAt is a timestamp.
-     */
     date: dateKey,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
-
-    habitStrength: 0,
-
-    /**
-     * Null means EMA has not been processed for any day yet.
-     * It will be set to dayLog.date when recomputeAndSave runs.
-     */
+    // ✅ Batch 55: Neutral EMA baseline (0.5) — consistent with recalibrateHabits.js
+    habitStrength: 0.5,
     lastEmaDate: null,
-
-    /**
-     * Baseline before current day's EMA calculation.
-     */
     strengthBeforeToday: 0
   };
 

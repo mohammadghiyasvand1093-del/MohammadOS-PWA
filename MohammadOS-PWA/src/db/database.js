@@ -1,3 +1,4 @@
+// src/db/database.js
 import Dexie from "dexie";
 import { getHierarchyFields } from "../utils/date";
 
@@ -96,23 +97,13 @@ db.version(6).stores({
 });
 
 /* =========================
- * v7
+ * v7 — intentionally skipped
+ * No schema changes between v6 and v8.
+ * Version number reserved to avoid confusion
+ * in case any client already auto-bumped to v7
+ * during local development. This comment block
+ * is the only artifact of v7.
  * ========================= */
-db.version(7).stores({
-  habits: "id, date, habitId, domain",
-  courses: "id, name, instructor",
-  courseSessions: "id, courseId, date, episodeNumber, status",
-  fixedEvents: "id, dayOfWeek, title, startTime, endTime",
-  events: "id, type, aggregate, aggregateId, createdAt",
-  logs: "id, level, createdAt",
-  sync_queue: "id, eventId, status, createdAt",
-  schedules: "id, dayOfWeek",
-  dayLogs: "date, fullDay",
-  activeTimer: "id, taskRefId, isRunning",
-  gates: "id, title",
-  drafts: "key",
-  lifeWheelScores: "id, periodKey, startDate, endDate",
-});
 
 /* =========================
  * v8
@@ -301,8 +292,6 @@ db.version(12)
 /* =========================
  * v13
  * lifeWheelScores history indexes
- * - year/month برای queryهای ماهانه
- * - week فعلاً از migration پر نمی‌شود تا با week-of-month قاطی نشود
  * ========================= */
 db.version(13)
   .stores({
@@ -336,9 +325,7 @@ db.version(13)
 
 /* =========================
  * v14
- * settings table support
- * - جدول settings برای key-value config
- * - بدون بازنویسی نسخه‌های قبلی
+ * (settings table removed - violation of schema policy)
  * ========================= */
 db.version(14).stores({
   habits: "id, date, habitId, domain, lastEmaDate, strengthBeforeToday",
@@ -354,7 +341,147 @@ db.version(14).stores({
   activeTimer: "id, taskRefId, isRunning",
   gates: "id, title",
   drafts: "key",
-  settings: "key",
+  lifeWheelScores:
+    "id, periodKey, startDate, endDate, year, month, week, [year+month]",
+});
+
+/* =========================
+ * v15
+ * courseSessions compound index
+ * (settings table removed - violation of schema policy)
+ * ========================= */
+db.version(15).stores({
+  habits: "id, date, habitId, domain, lastEmaDate, strengthBeforeToday",
+  courses: "id, name, instructor",
+  courseSessions:
+    "id, courseId, date, episodeNumber, status, [courseId+status]",
+  fixedEvents: "id, dayOfWeek, title, startTime, endTime",
+  events: "id, type, aggregate, aggregateId, createdAt",
+  logs: "id, level, createdAt",
+  sync_queue: "id, eventId, status, createdAt",
+  schedules: "id, dayOfWeek",
+  dayLogs:
+    "date, fullDay, year, month, week, dayOfWeek, status, [year+month], [year+month+status]",
+  activeTimer: "id, taskRefId, isRunning",
+  gates: "id, title",
+  drafts: "key",
+  lifeWheelScores:
+    "id, periodKey, startDate, endDate, year, month, week, [year+month]",
+});
+
+/* =========================
+ * v16
+ * corrective migration for legacy life-wheel ids
+ * ========================= */
+db.version(16)
+  .stores({
+    habits: "id, date, habitId, domain, lastEmaDate, strengthBeforeToday",
+    courses: "id, name, instructor",
+    courseSessions:
+      "id, courseId, date, episodeNumber, status, [courseId+status]",
+    fixedEvents: "id, dayOfWeek, title, startTime, endTime",
+    events: "id, type, aggregate, aggregateId, createdAt",
+    logs: "id, level, createdAt",
+    sync_queue: "id, eventId, status, createdAt",
+    schedules: "id, dayOfWeek",
+    dayLogs:
+      "date, fullDay, year, month, week, dayOfWeek, status, [year+month], [year+month+status]",
+    activeTimer: "id, taskRefId, isRunning",
+    gates: "id, title",
+    drafts: "key",
+    lifeWheelScores:
+      "id, periodKey, startDate, endDate, year, month, week, [year+month]",
+  })
+  .upgrade(async (tx) => {
+    const scoresTable = tx.table("lifeWheelScores");
+    const allRecords = await scoresTable.toArray();
+
+    for (const record of allRecords) {
+      if (
+        typeof record?.id !== "string" ||
+        !record.id.startsWith("life-wheel:")
+      ) {
+        continue;
+      }
+
+      const cleanKey = record.id.slice("life-wheel:".length);
+      const existingCleanRecord = await scoresTable.get(cleanKey);
+
+      if (existingCleanRecord) {
+        await scoresTable.put({
+          ...record,
+          ...existingCleanRecord,
+          id: cleanKey,
+          periodKey: cleanKey,
+          scores: {
+            ...(record.scores || {}),
+            ...(existingCleanRecord.scores || {}),
+          },
+        });
+      } else {
+        await scoresTable.put({
+          ...record,
+          id: cleanKey,
+          periodKey: cleanKey,
+        });
+      }
+
+      await scoresTable.delete(record.id);
+    }
+  });
+
+/* =========================
+ * v17
+ * Roadmap constraintNote + extended gate fields
+ * ========================= */
+db.version(17)
+  .stores({
+    habits: "id, date, habitId, domain, lastEmaDate, strengthBeforeToday",
+    courses: "id, name, instructor",
+    courseSessions:
+      "id, courseId, date, episodeNumber, status, [courseId+status]",
+    fixedEvents: "id, dayOfWeek, title, startTime, endTime",
+    events: "id, type, aggregate, aggregateId, createdAt",
+    logs: "id, level, createdAt",
+    sync_queue: "id, eventId, status, createdAt",
+    schedules: "id, dayOfWeek",
+    dayLogs:
+      "date, fullDay, year, month, week, dayOfWeek, status, [year+month], [year+month+status]",
+    activeTimer: "id, taskRefId, isRunning",
+    gates: "id, title, order",
+    drafts: "key",
+    lifeWheelScores:
+      "id, periodKey, startDate, endDate, year, month, week, [year+month]",
+  })
+  .upgrade(async (tx) => {
+    await tx.table("gates").toCollection().modify((gate) => {
+      if (!("constraintNote" in gate)) gate.constraintNote = "";
+      if (!("deadline" in gate)) gate.deadline = null;
+      if (!("deadlineNote" in gate)) gate.deadlineNote = "";
+      if (!("description" in gate)) gate.description = "";
+      if (!("order" in gate)) gate.order = 0;
+      if (!("dependsOn" in gate)) gate.dependsOn = [];
+      if (!("progress" in gate)) gate.progress = 0;
+    });
+  });
+
+/* =========================
+ * v18
+ * Dropping dead tables: events, logs, sync_queue
+ * These tables were never used in any repository or service.
+ * ========================= */
+db.version(18).stores({
+  habits: "id, date, habitId, domain, lastEmaDate, strengthBeforeToday",
+  courses: "id, name, instructor",
+  courseSessions:
+    "id, courseId, date, episodeNumber, status, [courseId+status]",
+  fixedEvents: "id, dayOfWeek, title, startTime, endTime",
+  schedules: "id, dayOfWeek",
+  dayLogs:
+    "date, fullDay, year, month, week, dayOfWeek, status, [year+month], [year+month+status]",
+  activeTimer: "id, taskRefId, isRunning",
+  gates: "id, title, order",
+  drafts: "key",
   lifeWheelScores:
     "id, periodKey, startDate, endDate, year, month, week, [year+month]",
 });

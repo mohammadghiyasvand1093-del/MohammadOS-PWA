@@ -13,100 +13,37 @@ import {
 } from "../domain/logCalculator";
 
 const DEFAULT_SEED_SCHEDULE = {
-  sunday: {
-    schedule: [
-      {
-        title: "Focus Work",
-        type: "fixed",
-        startTime: "09:00",
-        endTime: "11:00"
-      }
-    ]
-  },
-  monday: {
-    schedule: [
-      {
-        title: "Deep Work",
-        type: "course",
-        startTime: "10:00",
-        endTime: "13:00"
-      }
-    ]
-  },
-  tuesday: {
-    schedule: [
-      {
-        title: "Skill Building",
-        type: "course",
-        startTime: "10:00",
-        endTime: "13:00"
-      }
-    ]
-  },
-  wednesday: {
-    schedule: [
-      {
-        title: "Project Dev",
-        type: "fixed",
-        startTime: "09:00",
-        endTime: "12:00"
-      }
-    ]
-  },
-  thursday: {
-    schedule: [
-      {
-        title: "Review & Sync",
-        type: "habit",
-        startTime: "11:00",
-        endTime: "12:00"
-      }
-    ]
-  },
-  friday: {
-    schedule: [
-      {
-        title: "Self Study",
-        type: "course",
-        startTime: "14:00",
-        endTime: "16:00"
-      }
-    ]
-  },
-  saturday: {
-    schedule: [
-      {
-        title: "Planning Day",
-        type: "habit",
-        startTime: "09:00",
-        endTime: "10:00"
-      }
-    ]
-  }
+  sunday: { schedule: [{ title: "Focus Work", type: "fixed", startTime: "09:00", endTime: "11:00" }] },
+  monday: { schedule: [{ title: "Deep Work", type: "course", startTime: "10:00", endTime: "13:00" }] },
+  tuesday: { schedule: [{ title: "Skill Building", type: "course", startTime: "10:00", endTime: "13:00" }] },
+  wednesday: { schedule: [{ title: "Project Dev", type: "fixed", startTime: "09:00", endTime: "12:00" }] },
+  thursday: { schedule: [{ title: "Review & Sync", type: "habit", startTime: "11:00", endTime: "12:00" }] },
+  friday: { schedule: [] },
+  saturday: { schedule: [{ title: "Planning Day", type: "habit", startTime: "09:00", endTime: "10:00" }] }
 };
 
-const DAY_NAMES = [
-  "sunday",
-  "monday",
-  "tuesday",
-  "wednesday",
-  "thursday",
-  "friday",
-  "saturday"
-];
+const DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 
-function mapTypeToCategory(type) {
+// ✅ Batch 47: Exported for reuse in aggregationService
+export function mapTypeToCategory(type) {
   switch (type) {
-    case "course":
-      return "study";
-    case "habit":
-      return "habit";
-    case "fixed":
-      return "work";
-    case "break":
-      return "rest";
-    default:
-      return "other";
+    case "course": return "study";
+    case "habit": return "habit";
+    case "fixed": return "work";
+    case "break": return "rest";
+    default: return "other";
+  }
+}
+
+// ✅ Batch 48 (Reviewer 2 — Option A): Automatic domain mapping based on block.type
+// Backward compatible: respects explicit block.domain if provided
+export function mapTypeToDomain(type) {
+  switch (type) {
+    case "course": return "learning";
+    case "habit":  return "discipline";
+    case "fixed":  return "work";
+    case "break":  return "rest";
+    default:       return "general";
   }
 }
 
@@ -116,7 +53,7 @@ function ensureEntriesShape(entries = []) {
     refId: entry.refId || null,
     title: entry.title || "",
     category: entry.category || "other",
-    domain: entry.domain || null,
+    domain: entry.domain || "general",
     plannedStart: entry.plannedStart || null,
     plannedEnd: entry.plannedEnd || null,
     actualStart: entry.actualStart || null,
@@ -127,13 +64,15 @@ function ensureEntriesShape(entries = []) {
   }));
 }
 
-function buildEntriesFromSchedule(scheduleBlocks = []) {
+// ✅ Batch 47: Exported for reuse in aggregationService
+// ✅ Batch 48 (Reviewer 2): Domain auto-mapped from block.type when block.domain missing
+export function buildEntriesFromSchedule(scheduleBlocks = []) {
   return scheduleBlocks.map((block) => ({
     id: crypto.randomUUID(),
     refId: block.refId || null,
     title: block.title,
     category: mapTypeToCategory(block.type),
-    domain: null,
+    domain: block.domain || mapTypeToDomain(block.type),
     plannedStart: block.startTime,
     plannedEnd: block.endTime,
     actualStart: null,
@@ -150,10 +89,6 @@ function isHabitActiveOnDate(habit, dateStr) {
   const targetDate = normalizeToDateKey(dateStr);
   const startDate = normalizeToDateKey(habit.date || habit.createdAt);
 
-  /**
-   * If habit has a start date after the target day,
-   * it must not appear in that dayLog.
-   */
   if (startDate && startDate > targetDate) {
     return false;
   }
@@ -161,7 +96,7 @@ function isHabitActiveOnDate(habit, dateStr) {
   const dayOfWeek = getDayOfWeekFromDateKey(targetDate);
 
   if (habit.recurrence.type === "daily") {
-    return true;
+    return dayOfWeek !== 5; // Friday = off-day
   }
 
   if (habit.recurrence.type === "weekly") {
@@ -177,7 +112,7 @@ function buildHabitEntry(habit) {
     refId: habit.id,
     title: habit.name,
     category: "habit",
-    domain: habit.domain || "general",
+    domain: habit.domain || "discipline",
     plannedStart: null,
     plannedEnd: null,
     actualStart: null,
@@ -190,17 +125,10 @@ function buildHabitEntry(habit) {
 
 async function buildEntriesFromHabits(dateStr) {
   const allHabits = await db.habits.toArray();
-
-  const todaysHabits = allHabits.filter((habit) =>
-    isHabitActiveOnDate(habit, dateStr)
-  );
-
+  const todaysHabits = allHabits.filter((habit) => isHabitActiveOnDate(habit, dateStr));
   return todaysHabits.map(buildHabitEntry);
 }
 
-/**
- * Syncs missing habit entries into an existing dayLog.
- */
 async function syncHabitEntriesIntoDayLog(dayLog) {
   if (!dayLog) return null;
 
@@ -221,11 +149,7 @@ async function syncHabitEntriesIntoDayLog(dayLog) {
     .map(buildHabitEntry);
 
   if (missingHabitEntries.length === 0) {
-    return {
-      ...dayLog,
-      date: dateStr,
-      entries
-    };
+    return { ...dayLog, date: dateStr, entries };
   }
 
   const updated = {
@@ -247,12 +171,7 @@ async function lazyMigrateDayLog(dayLog) {
   const entries = Array.isArray(dayLog.entries) ? dayLog.entries : [];
   const refShapeMissing = entries.some((entry) => !("refId" in entry));
 
-  if (
-    dayLog.date !== dateKey ||
-    hierarchyMissing ||
-    refShapeMissing ||
-    !dayLog.status
-  ) {
+  if (dayLog.date !== dateKey || hierarchyMissing || refShapeMissing || !dayLog.status) {
     const now = new Date().toISOString();
     const hierarchy = getHierarchyFields(dateKey);
 
@@ -265,83 +184,73 @@ async function lazyMigrateDayLog(dayLog) {
       updatedAt: now
     };
 
-    /**
-     * If primary key changed because of date normalization,
-     * delete old key and put new one inside a transaction.
-     */
     if (dayLog.date !== dateKey) {
-      await db.transaction("rw", db.dayLogs, async () => {
-        await db.dayLogs.delete(dayLog.date);
-        await db.dayLogs.put(migrated);
-      });
-    } else {
-      await db.dayLogs.put(migrated);
+      await db.dayLogs.delete(dayLog.date);
     }
+    await db.dayLogs.put(migrated);
 
     return migrated;
   }
 
-  return {
-    ...dayLog,
-    date: dateKey,
-    entries: ensureEntriesShape(entries)
-  };
+  return { ...dayLog, date: dateKey, entries: ensureEntriesShape(entries) };
 }
 
 export const DayLogRepository = {
   async getOrCreateByDate(dateStr, dayOfWeekInput) {
     const dateKey = normalizeToDateKey(dateStr);
-    let dayLog = await db.dayLogs.get(dateKey);
 
-    if (dayLog) {
-      dayLog = await lazyMigrateDayLog(dayLog);
-      dayLog = await syncHabitEntriesIntoDayLog(dayLog);
-      return dayLog;
-    }
+    return db.transaction("rw", db.dayLogs, db.habits, db.schedules, async () => {
+      let dayLog = await db.dayLogs.get(dateKey);
 
-    const hierarchy = getHierarchyFields(dateKey);
-    const now = new Date().toISOString();
-
-    let dayKey;
-
-    if (typeof dayOfWeekInput === "number") {
-      dayKey = DAY_NAMES[dayOfWeekInput];
-    } else if (dayOfWeekInput) {
-      dayKey = String(dayOfWeekInput).toLowerCase();
-    } else {
-      dayKey = DAY_NAMES[hierarchy.dayOfWeek];
-    }
-
-    let schedule = await ScheduleRepository.getDaySchedule(dayKey);
-
-    if (!schedule || !schedule.schedule) {
-      const fallbackData = DEFAULT_SEED_SCHEDULE[dayKey];
-      if (fallbackData) {
-        schedule = { schedule: fallbackData.schedule };
+      if (dayLog) {
+        dayLog = await lazyMigrateDayLog(dayLog);
+        dayLog = await syncHabitEntriesIntoDayLog(dayLog);
+        return dayLog;
       }
-    }
 
-    const scheduleEntries = schedule
-      ? buildEntriesFromSchedule(schedule.schedule)
-      : [];
+      const hierarchy = getHierarchyFields(dateKey);
+      const now = new Date().toISOString();
 
-    const habitEntries = await buildEntriesFromHabits(dateKey);
+      let dayKey;
 
-    dayLog = {
-      date: dateKey,
-      entries: [...scheduleEntries, ...habitEntries],
-      journalNote: "",
-      slipNote: "",
-      fullDay: false,
-      fullDayScore: 0,
-      status: "active",
-      ...hierarchy,
-      createdAt: now,
-      updatedAt: now
-    };
+      if (typeof dayOfWeekInput === "number") {
+        dayKey = DAY_NAMES[dayOfWeekInput];
+      } else if (dayOfWeekInput) {
+        dayKey = String(dayOfWeekInput).toLowerCase();
+      } else {
+        dayKey = DAY_NAMES[hierarchy.dayOfWeek];
+      }
 
-    await db.dayLogs.put(dayLog);
-    return dayLog;
+      let schedule = await ScheduleRepository.getScheduleForDate(dateKey, dayKey);
+
+      if (!schedule || !schedule.schedule) {
+        const fallbackData = DEFAULT_SEED_SCHEDULE[dayKey];
+        if (fallbackData) {
+          schedule = { schedule: fallbackData.schedule };
+        }
+      }
+
+      const scheduleEntries = schedule ? buildEntriesFromSchedule(schedule.schedule) : [];
+      const habitEntries = await buildEntriesFromHabits(dateKey);
+
+      dayLog = {
+        date: dateKey,
+        entries: [...scheduleEntries, ...habitEntries],
+        journalNote: "",
+        slipNote: "",
+        mood: null,
+        moodNote: "",
+        fullDay: false,
+        fullDayScore: 0,
+        status: "active",
+        ...hierarchy,
+        createdAt: now,
+        updatedAt: now
+      };
+
+      await db.dayLogs.put(dayLog);
+      return dayLog;
+    });
   },
 
   async recomputeAndSave(dayLog) {
@@ -359,9 +268,7 @@ export const DayLogRepository = {
       ...hierarchy
     };
 
-    const { fullDay, fullDayScore } = calculateDayLogMetrics(
-      normalizedDayLog.entries
-    );
+    const { fullDay, fullDayScore } = calculateDayLogMetrics(normalizedDayLog.entries);
 
     const finalDayLog = {
       ...normalizedDayLog,
@@ -399,45 +306,59 @@ export const DayLogRepository = {
 
   async freezeDay(dateStr) {
     const dateKey = normalizeToDateKey(dateStr);
-    let dayLog = await db.dayLogs.get(dateKey);
+    return db.transaction("rw", db.dayLogs, async () => {
+      let dayLog = await db.dayLogs.get(dateKey);
+      if (!dayLog) return false;
 
-    if (!dayLog) return false;
+      dayLog = await lazyMigrateDayLog(dayLog);
 
-    dayLog = await lazyMigrateDayLog(dayLog);
+      const monthFrozenCount = await db.dayLogs
+        .where({ year: dayLog.year, month: dayLog.month, status: "frozen" })
+        .count();
 
-    const monthFrozenCount = await db.dayLogs
-      .where({
-        year: dayLog.year,
-        month: dayLog.month,
-        status: "frozen"
-      })
-      .count();
+      if (monthFrozenCount >= 2) return false;
 
-    if (monthFrozenCount >= 2) return false;
+      dayLog.status = "frozen";
+      dayLog.fullDay = false;
+      dayLog.fullDayScore = 0;
+      dayLog.updatedAt = new Date().toISOString();
 
-    dayLog.status = "frozen";
-    dayLog.fullDay = false;
-    dayLog.updatedAt = new Date().toISOString();
-
-    await db.dayLogs.put(dayLog);
-    return true;
+      await db.dayLogs.put(dayLog);
+      return true;
+    });
   },
 
   async unfreezeDay(dateStr) {
     const dateKey = normalizeToDateKey(dateStr);
-    let dayLog = await db.dayLogs.get(dateKey);
+    return db.transaction("rw", db.dayLogs, async () => {
+      let dayLog = await db.dayLogs.get(dateKey);
+      if (!dayLog) return false;
 
-    if (!dayLog) return false;
+      dayLog = await lazyMigrateDayLog(dayLog);
+      dayLog.status = "active";
+      dayLog.updatedAt = new Date().toISOString();
 
-    dayLog = await lazyMigrateDayLog(dayLog);
-    dayLog.status = "active";
-    dayLog.updatedAt = new Date().toISOString();
+      const { fullDay, fullDayScore } = calculateDayLogMetrics(dayLog.entries);
+      dayLog.fullDay = fullDay;
+      dayLog.fullDayScore = fullDayScore;
 
-    await db.dayLogs.put(dayLog);
-    return true;
+      await db.dayLogs.put(dayLog);
+      return true;
+    });
   },
 
   async getMonthLogs(year, month) {
     return db.dayLogs.where({ year, month }).toArray();
+  },
+
+  async getByDate(dateStr) {
+    const dateKey = normalizeToDateKey(dateStr);
+    const log = await db.dayLogs.get(dateKey);
+    if (!log) return null;
+    return {
+      ...log,
+      date: dateKey,
+      entries: ensureEntriesShape(log.entries || [])
+    };
   }
 };

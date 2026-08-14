@@ -2,9 +2,20 @@ import { db } from "../db/database";
 
 const ENABLE_CONSOLE = true;
 
+/**
+ * UUID generator with fallback for non-secure contexts (HTTP)
+ * crypto.randomUUID requires HTTPS or localhost.
+ */
+function generateId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
 async function write(level, message, stack = null, source = "Unknown", context = null) {
   const logEntry = {
-    id: crypto.randomUUID(), // <--- این خط اضافه شد
+    id: generateId(),
     level,
     message,
     stack,
@@ -13,7 +24,7 @@ async function write(level, message, stack = null, source = "Unknown", context =
     createdAt: new Date().toISOString(),
   };
 
-  // ذخیره در Dexie
+  // ذخیره در Dexie (fire-and-forget)
   db.logs.add(logEntry).catch((err) => {
     if (ENABLE_CONSOLE) {
       console.error("Failed to write log:", err);

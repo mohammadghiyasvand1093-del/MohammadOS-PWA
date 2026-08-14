@@ -1,289 +1,219 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { ActivityCalendar } from "react-activity-calendar";
-import { db } from "../db/database";
-import CoachReportModal from "../components/CoachReportModal";
 import LifeWheelChart from "../components/LifeWheelChart";
-import { runWeeklyAnalysis } from "../ai/coachService";
-import { exportToCSV, exportToJSON } from "../app/exportData";
 import { CourseRepository } from "../repositories/CourseRepository";
+import { AggregationService } from "../service/aggregationService";
+import { getInsights } from "../ai/coachService";
+import { recalibrateAllHabits } from "../app/recalibrateHabits";
+import { getISOWeekKey, getLocalDateKey, nowMs, toPersianDate, toPersianNumber } from "../utils/date";
+
+const GRACE_MONTHLY_LIMIT = 2;
+
+const SEVERITY_STYLES = {
+  alert: { bg: "bg-red-500/10", border: "border-red-500/30", text: "text-red-400" },
+  warning: { bg: "bg-amber-500/10", border: "border-amber-500/30", text: "text-amber-400" },
+  info: { bg: "bg-sky-500/10", border: "border-sky-500/30", text: "text-sky-400" },
+  success: { bg: "bg-emerald-500/10", border: "border-emerald-500/30", text: "text-emerald-400" },
+};
+
+const MOOD_LABELS = {
+  1: "😫 خیلی بد",
+  2: "😕 بد",
+  3: "😐 معمولی",
+  4: "🙂 خوب",
+  5: "😄 عالی",
+};
 
 export default function StatusPage() {
   const [heatMapData, setHeatMapData] = useState([]);
   const [courses, setCourses] = useState([]);
-  const [isLoadingCourses, setIsLoadingCourses] = useState(true);
-  const [dashboardSummary, setDashboardSummary] = useState(null);
-
-  const [weeklyStats, setWeeklyStats] = useState({
-    fullDays: 0,
-    outcomeRatio: 0,
-    totalTasks: 0,
-    doneTasks: 0,
+  const [weeklyDayLogs, setWeeklyDayLogs] = useState([]);
+  const [vitals, setVitals] = useState({
+    streak: 0,
+    monthRate: 0,
+    avgMood: "-",
+    graceUsed: 0,
+    graceTotal: GRACE_MONTHLY_LIMIT,
+    consistency: 0,
   });
-
-  const [isCoachLoading, setIsCoachLoading] = useState(false);
-  const [coachError, setCoachError] = useState(null);
-  const [coachReport, setCoachReport] = useState(null);
-  const [isCoachModalOpen, setIsCoachModalOpen] = useState(false);
-
-  const [isExporting, setIsExporting] = useState(false);
+  const [loadingVitals, setLoadingVitals] = useState(true);
   const [toastMessage, setToastMessage] = useState("");
-  const [toastType, setToastType] = useState("success");
+  const [coachInsights, setCoachInsights] = useState([]);
+  const [loadingCoach, setLoadingCoach] = useState(true);
+  const [recalibrating, setRecalibrating] = useState(false);
 
-  const showToast = useCallback((message, type = "success") => {
+  const toastTimeoutRef = useRef(null);
+
+  const todayKey = useMemo(() => getLocalDateKey(new Date(nowMs())), []);
+  const currentPeriodKey = useMemo(() => getISOWeekKey(new Date(nowMs())), []);
+
+  const showToast = useCallback((message) => {
     setToastMessage(message);
-    setToastType(type);
-  }, []);
-
-  useEffect(() => {
-    if (!toastMessage) return undefined;
-
-    const timer = window.setTimeout(() => {
-      setToastMessage("");
-    }, 3000);
-
-    return () => window.clearTimeout(timer);
-  }, [toastMessage]);
-
-  const formatPersianDate = useCallback((isoDate) => {
-    try {
-      const [y, m, d] = isoDate.split("-").map(Number);
-      const dt = new Date(Date.UTC(y, m - 1, d));
-
-      return new Intl.DateTimeFormat("fa-IR", {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      }).format(dt);
-    } catch {
-      return isoDate;
-    }
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    toastTimeoutRef.current = setTimeout(() => setToastMessage(""), 3000);
   }, []);
 
   const levelLabelFa = useCallback((level) => {
     switch (level) {
-      case 0:
-        return "بدون داده";
-      case 1:
-        return "فعال / Grace";
-      case 2:
-        return "پیشرفت";
-      case 3:
-        return "پیشرفت بالا";
-      case 4:
-        return "Full Day";
-      default:
-        return "نامشخص";
+      case 0: return "بدون داده";
+      case 1: return "فعال / Grace";
+      case 2: return "پیشرفت";
+      case 3: return "پیشرفت بالا";
+      case 4: return "Full Day";
+      default: return "نامشخص";
     }
   }, []);
 
-  useEffect(() => {
-    async function fetchCourses() {
-      try {
-        setIsLoadingCourses(true);
-        const coursesWithProgress = await CourseRepository.getAll({
-          sortBy: "name",
-          order: "asc",
-          criticalFirst: true,
-        });
+  const normalizeCourseProgress = useCallback((courseItem) => {
+    const totalEpisodes = Number(courseItem.totalEpisodes || 0);
+    const currentEpisode = Number(courseItem.currentEpisode || 0);
+    let progress = Number(courseItem.progress || 0);
 
-        setCourses(coursesWithProgress);
-      } catch (error) {
-        console.error("Error loading courses:", error);
-        showToast("خطا در بارگذاری دوره‌ها", "error");
-      } finally {
-        setIsLoadingCourses(false);
-      }
+    if (!Number.isFinite(progress) || progress < 0 || progress > 100) {
+      if (totalEpisodes > 0) progress = Math.round((currentEpisode / totalEpisodes) * 100);
+      else progress = 0;
     }
+    progress = Math.max(0, Math.min(100, progress));
 
-    fetchCourses();
-  }, [showToast]);
-
-  useEffect(() => {
-    async function loadDashboardSummary() {
-      try {
-        const summary = await CourseRepository.getDashboardSummary();
-        setDashboardSummary(summary);
-      } catch (error) {
-        console.error("Error loading dashboard summary:", error);
-      }
-    }
-
-    loadDashboardSummary();
+    return { ...courseItem, progress, currentEpisode, totalEpisodes };
   }, []);
 
-  useEffect(() => {
-    async function calculateWeeklyStats() {
-      try {
-        const today = new Date();
-        const startOfWeek = new Date(today);
-        startOfWeek.setHours(0, 0, 0, 0);
-        startOfWeek.setDate(today.getDate() - today.getDay());
-
-        const endOfWeek = new Date(startOfWeek);
-        endOfWeek.setDate(startOfWeek.getDate() + 6);
-        endOfWeek.setHours(23, 59, 59, 999);
-
-        const startDateStr = startOfWeek.toISOString().split("T")[0];
-        const endDateStr = endOfWeek.toISOString().split("T")[0];
-
-        const logs = await db.dayLogs
-          .where("date")
-          .between(startDateStr, endDateStr, true, true)
-          .toArray();
-
-        const fullDays = logs.filter((log) => log.fullDay).length;
-
-        let totalTasks = 0;
-        let doneTasks = 0;
-
-        logs.forEach((log) => {
-          if (Array.isArray(log.entries)) {
-            totalTasks += log.entries.length;
-            doneTasks += log.entries.filter((entry) => entry.done).length;
-          }
-        });
-
-        const outcomeRatio =
-          totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 10) / 10 : 0;
-
-        setWeeklyStats({
-          fullDays,
-          outcomeRatio,
-          totalTasks,
-          doneTasks,
-        });
-      } catch (error) {
-        console.error("Error calculating weekly stats:", error);
-      }
-    }
-
-    calculateWeeklyStats();
-  }, []);
-
-  useEffect(() => {
-    async function loadHeatmap() {
-      try {
-        const logs = await db.dayLogs.toArray();
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        const last90Days = [];
-
-        for (let i = 89; i >= 0; i--) {
-          const currentDate = new Date(today);
-          currentDate.setDate(today.getDate() - i);
-          const dateStr = currentDate.toISOString().split("T")[0];
-
-          const log = logs.find((item) => item.date === dateStr);
-          let level = 0;
-
-          if (log) {
-            if (log.status === "frozen") {
-              level = 1;
-            } else if (log.fullDay) {
-              level = 4;
-            } else if (
-              Array.isArray(log.entries) &&
-              log.entries.some((entry) => entry.done)
-            ) {
-              level = 2;
-            } else {
-              level = 1;
-            }
-          }
-
-          last90Days.push({
-            date: dateStr,
-            count: level,
-            level,
-          });
-        }
-
-        setHeatMapData(last90Days);
-      } catch (error) {
-        console.error("Error loading heatmap data:", error);
-      }
-    }
-
-    loadHeatmap();
-  }, []);
-
-  const handleExport = useCallback(
-    async (type, range) => {
-      setIsExporting(true);
-      try {
-        if (type === "csv") {
-          await exportToCSV(range);
-          showToast(
-            `فایل CSV (${
-              range === "all" ? "کل تاریخچه" : `${range} روزه`
-            }) دانلود شد.`,
-            "success"
-          );
-        }
-
-        if (type === "json") {
-          await exportToJSON(range);
-          showToast(
-            `پشتیبان JSON (${
-              range === "all" ? "کل تاریخچه" : `${range} روزه`
-            }) دانلود شد.`,
-            "success"
-          );
-        }
-      } catch (error) {
-        console.error("Error exporting data:", error);
-        showToast("خطا در خروجی گرفتن از اطلاعات!", "error");
-      } finally {
-        setIsExporting(false);
-      }
-    },
-    [showToast]
-  );
-
-  const handleWeeklyAnalysis = useCallback(async () => {
-    setIsCoachModalOpen(true);
-    setIsCoachLoading(true);
-    setCoachError(null);
-    setCoachReport(null);
-
+  const fetchCourses = useCallback(async () => {
     try {
-      const last7Logs = await db.dayLogs
-        .orderBy("date")
-        .reverse()
-        .limit(7)
-        .toArray();
-
-      if (last7Logs.length === 0) {
-        throw new Error("هیچ لاگی برای ۷ روز اخیر ثبت نشده است.");
-      }
-
-      const sortedLogs = last7Logs.reverse();
-      const result = await runWeeklyAnalysis(sortedLogs);
-      setCoachReport(result);
+      const coursesWithProgress = await CourseRepository.getAll({
+        sortBy: "name",
+        order: "asc",
+        criticalFirst: true,
+        calculateByEpisodesField: true,
+      });
+      setCourses(coursesWithProgress.map(normalizeCourseProgress));
     } catch (error) {
-      console.error("Error running weekly AI analysis:", error);
-      setCoachError(error.message || "خطا در تحلیل هفتگی.");
-    } finally {
-      setIsCoachLoading(false);
+      console.error("Error loading courses:", error);
     }
+  }, [normalizeCourseProgress]);
+
+  const loadWeeklyLogs = useCallback(async () => {
+    try {
+      const stats = await AggregationService.getWeeklyStats();
+      setWeeklyDayLogs(stats.weeklyDayLogs || []);
+    } catch (error) {
+      console.error("Error loading weekly logs:", error);
+    }
+  }, []);
+
+  const loadVitals = useCallback(async () => {
+    try {
+      const v = await AggregationService.getVitals();
+      setVitals(v);
+    } catch (err) {
+      console.error("Load vitals error:", err);
+    } finally {
+      setLoadingVitals(false);
+    }
+  }, []);
+
+  const loadHeatmap = useCallback(async () => {
+    try {
+      const data = await AggregationService.getHeatmapData(90);
+      setHeatMapData(data);
+    } catch (error) {
+      console.error("Error loading heatmap data:", error);
+    }
+  }, []);
+
+  const loadCoach = useCallback(async () => {
+    try {
+      const [domainTrend, todayStats] = await Promise.all([
+        AggregationService.getDomainTrend(6),
+        AggregationService.getTodayStats()
+      ]);
+      
+      const weeklyStats = {
+        weeklyDayLogs: weeklyDayLogs,
+        moodTrend: weeklyDayLogs.map(l => l.mood).filter(m => m != null)
+      };
+
+      const insights = getInsights(vitals, weeklyStats, domainTrend, todayStats?.dayLog);
+      setCoachInsights(insights || []);
+    } catch (err) {
+      console.error("Load coach insights error:", err);
+      setCoachInsights([]);
+    } finally {
+      setLoadingCoach(false);
+    }
+  }, [vitals, weeklyDayLogs]);
+
+  // ✅ Fix: Combined initial load and visibility change
+  const refreshAll = useCallback(async () => {
+    try {
+      await Promise.all([
+        fetchCourses(),
+        loadWeeklyLogs(),
+        loadHeatmap()
+      ]);
+      await loadVitals();
+      await loadCoach();
+    } catch (err) {
+      console.error("Error refreshing data:", err);
+    }
+  }, [fetchCourses, loadWeeklyLogs, loadHeatmap, loadVitals, loadCoach]);
+
+  useEffect(() => {
+    let mounted = true;
+    async function initialFetch() {
+      if (!mounted) return;
+      await refreshAll();
+    }
+    initialFetch();
+    
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") refreshAll();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      mounted = false;
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [refreshAll]);
+
+  const handleRecalibrate = useCallback(async () => {
+    if (
+      !window.confirm(
+        "ریست نرم EMA؟\n\nتمام عادت‌ها به baseline ۰.۵ برمی‌گردند. تاریخ EMA پاک می‌شود.\n\nاین عملیات برگشت‌ناپذیر است."
+      )
+    )
+      return;
+
+    setRecalibrating(true);
+    try {
+      const result = await recalibrateAllHabits();
+      showToast(`✓ ${toPersianNumber(result.count)} عادت به baseline ${result.baseline} ریست شد.`);
+
+      await refreshAll();
+    } catch (err) {
+      showToast("❌ خطا در ریست EMA");
+      console.error(err);
+    } finally {
+      setRecalibrating(false);
+    }
+  }, [showToast, refreshAll]);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    };
   }, []);
 
   const missionConsoleColors = useMemo(
-    () => ["#232B36", "#343D4B", "#4FAE87", "#4FAE87", "#F5A623"],
+    () => ["#232B36", "#343D4B", "#4FAE87", "#3D8B6F", "#F5A623"],
     []
   );
 
   return (
     <div className="max-w-3xl mx-auto p-4 md:p-8 text-main space-y-6 relative">
       {toastMessage && (
-        <div
-          className={`fixed top-5 left-5 bg-card border text-xs font-mono py-2.5 px-4 rounded shadow-lg shadow-black/80 z-50 animate-bounce ${
-            toastType === "error"
-              ? "border-red-500 text-red-400"
-              : "border-amber-active text-amber-active"
-          }`}
-        >
+        <div className="fixed top-5 left-5 bg-card border border-amber-active text-amber-active text-xs font-mono py-2.5 px-4 rounded shadow-lg shadow-black/80 z-50 animate-bounce">
           ⚡ {toastMessage}
         </div>
       )}
@@ -295,53 +225,168 @@ export default function StatusPage() {
         </p>
       </div>
 
-      <LifeWheelChart />
+      <LifeWheelChart
+        courses={courses}
+        dayLogs={weeklyDayLogs}
+        periodKey={currentPeriodKey}
+        onSaveSuccess={() => showToast("اطلاعات چرخ زندگی با موفقیت ذخیره شد.")}
+      />
 
-      {dashboardSummary && (
-        <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="bg-card border border-subtle rounded-lg p-3 text-center">
-            <div className="text-[10px] font-mono text-muted uppercase">
-              دوره‌ها
-            </div>
-            <div className="text-xl font-black text-main mt-1">
-              {dashboardSummary.totalCourses}
-            </div>
+      <section className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="bg-card border border-subtle rounded-lg p-4 text-center">
+          <div className="text-[10px] font-mono text-muted uppercase mb-1">STREAK</div>
+          <div className="text-2xl font-black text-amber-active">
+            {loadingVitals ? "—" : toPersianNumber(vitals.streak)}
           </div>
-          <div className="bg-card border border-subtle rounded-lg p-3 text-center">
-            <div className="text-[10px] font-mono text-muted uppercase">
-              حیاتی
-            </div>
-            <div className="text-xl font-black text-amber-active mt-1">
-              {dashboardSummary.criticalCourses}
-            </div>
+          <div className="text-[9px] font-mono text-muted/50 mt-1">روز متوالی Full Day</div>
+        </div>
+        <div className="bg-card border border-subtle rounded-lg p-4 text-center">
+          <div className="text-[10px] font-mono text-muted uppercase mb-1">MONTH RATE</div>
+          <div className="text-2xl font-black text-steel-blue">
+            {loadingVitals ? "—" : `${toPersianNumber(vitals.monthRate)}%`}
           </div>
-          <div className="bg-card border border-subtle rounded-lg p-3 text-center">
-            <div className="text-[10px] font-mono text-muted uppercase">
-              میانگین پیشرفت
-            </div>
-            <div className="text-xl font-black text-steel-blue mt-1">
-              {dashboardSummary.avgProgress}%
-            </div>
+          <div className="text-[9px] font-mono text-muted/50 mt-1">Full Day این ماه</div>
+        </div>
+        <div className="bg-card border border-subtle rounded-lg p-4 text-center">
+          <div className="text-[10px] font-mono text-muted uppercase mb-1">AVG MOOD</div>
+          <div className="text-2xl font-black text-sage-green">
+            {loadingVitals ? "—" : vitals.avgMood !== "-" ? toPersianNumber(vitals.avgMood) : "—"}
           </div>
-          <div className="bg-card border border-subtle rounded-lg p-3 text-center">
-            <div className="text-[10px] font-mono text-muted uppercase">
-              جلسات تکمیل‌شده
-            </div>
-            <div className="text-xl font-black text-sage-green mt-1">
-              {dashboardSummary.completedSessions}
-            </div>
+          <div className="text-[9px] font-mono text-muted/50 mt-1">میانگین حال روز</div>
+        </div>
+        <div className="bg-card border border-subtle rounded-lg p-4 text-center">
+          <div className="text-[10px] font-mono text-muted uppercase mb-1">GRACE</div>
+          <div className="text-2xl font-black text-blue-400">
+            {loadingVitals
+              ? "—"
+              : `${toPersianNumber(vitals.graceUsed)}/${toPersianNumber(vitals.graceTotal)}`}
           </div>
-        </section>
-      )}
+          <div className="text-[9px] font-mono text-muted/50 mt-1">استفاده شده / سقف</div>
+        </div>
+        <div className="bg-card border border-subtle rounded-lg p-4 text-center">
+          <div className="text-[10px] font-mono text-muted uppercase mb-1">CONSISTENCY</div>
+          <div className="text-2xl font-black text-purple-400">
+            {loadingVitals ? "—" : `${toPersianNumber(vitals.consistency)}%`}
+          </div>
+          <div className="text-[9px] font-mono text-muted/50 mt-1">Full Day / Expected</div>
+        </div>
+      </section>
+
+      <section className="bg-card border border-subtle p-4 rounded-lg">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h3 className="text-sm font-mono text-muted uppercase tracking-wider">
+              [ ↺ ] BASELINE RECALIBRATION
+            </h3>
+            <p className="text-[10px] font-mono text-muted/60 mt-1">ریست نرم EMA — بازگشت به ۰.۵</p>
+          </div>
+          <button
+            onClick={handleRecalibrate}
+            disabled={recalibrating}
+            className="px-4 py-2 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-mono rounded hover:bg-amber-500/20 transition disabled:opacity-50"
+          >
+            {recalibrating ? "..." : "RECALIBRATE"}
+          </button>
+        </div>
+      </section>
+
+      {/* === WEEKLY MOOD TREND === */}
+      <section className="bg-card border border-subtle p-6 rounded-lg">
+        <h3 className="text-sm font-mono text-amber-active mb-4 uppercase tracking-wider">
+          [ 📈 ] WEEKLY MOOD TREND
+        </h3>
+        {(() => {
+          const moodLogs = weeklyDayLogs
+            .filter((log) => log.date <= todayKey && log.mood != null)
+            .sort((a, b) => a.date.localeCompare(b.date));
+
+          if (moodLogs.length === 0) {
+            return (
+              <p className="text-xs font-mono text-os-text/50 w-full text-center py-4">
+                NO MOOD DATA THIS WEEK
+              </p>
+            );
+          }
+
+          if (moodLogs.length === 1) {
+            const log = moodLogs[0];
+            return (
+              <div className="flex flex-col items-center justify-center h-32 gap-2">
+                <span className="text-3xl" aria-hidden="true">
+                  {(MOOD_LABELS[log.mood] || "😐").split(" ")[0]}
+                </span>
+                <span className="text-xs font-mono text-sage-green font-bold">
+                  {toPersianNumber(log.mood)} / ۵
+                </span>
+                <span className="text-[9px] font-mono text-muted/60">
+                  {toPersianDate(log.date)}
+                </span>
+              </div>
+            );
+          }
+
+          return (
+            <div className="flex items-end justify-between gap-3 h-32 px-2">
+              {moodLogs.map((log) => (
+                <div key={log.date} className="flex flex-col items-center gap-2 flex-1">
+                  <div className="text-xs font-mono text-sage-green font-bold">
+                    {toPersianNumber(log.mood)}
+                  </div>
+                  <div
+                    className="w-full bg-sage-green/40 rounded-t transition-all"
+                    style={{ height: `${(log.mood / 5) * 100}%` }}
+                  />
+                  <span className="text-[9px] font-mono text-muted/60">
+                    {toPersianNumber(log.date.slice(5))}
+                  </span>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+      </section>
+
+      {/* === COACH INSIGHTS === */}
+      <section className="bg-card border border-subtle p-6 rounded-lg">
+        <h3 className="text-sm font-mono text-amber-active mb-4 uppercase tracking-wider">
+          [ 🧠 ] COACH INSIGHTS
+        </h3>
+        {loadingCoach ? (
+          <p className="text-xs font-mono text-os-text/50 text-center py-4">ANALYZING DATA...</p>
+        ) : !coachInsights || coachInsights.length === 0 ? (
+          <p className="text-xs font-mono text-os-text/50 text-center py-4">
+            NO CRITICAL INSIGHTS. YOU ARE ON TRACK.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {coachInsights.map((insight, idx) => {
+              const style = SEVERITY_STYLES[insight.severity] || SEVERITY_STYLES.info;
+              return (
+                <div key={idx} className={`p-3 rounded-lg border ${style.bg} ${style.border}`}>
+                  <div className="flex items-start gap-3">
+                    <span className="text-lg">{insight.icon}</span>
+                    <div className="flex-1">
+                      <h4 className={`text-sm font-bold ${style.text}`}>{insight.title}</h4>
+                      <p className="text-xs text-main/80 mt-1">{insight.message}</p>
+                      {insight.action && (
+                        <p className="text-[10px] font-mono text-muted/70 mt-2">→ {insight.action}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       <section className="bg-card border border-subtle p-6 rounded-lg">
         <h3 className="text-sm font-mono text-amber-active mb-4 uppercase tracking-wider">
           [ 📊 ] DISCIPLINE HEATMAP (Last 90 Days)
         </h3>
-
         {heatMapData.length > 0 ? (
           <div className="overflow-x-auto pt-8">
-            <div className="min-w-[860px]">
+            <div className="min-w-[860px] heatmap-rtl-fix">
               <ActivityCalendar
                 data={heatMapData}
                 colors={missionConsoleColors}
@@ -350,12 +395,15 @@ export default function StatusPage() {
                 renderBlock={(block, activity) => {
                   const date = activity?.date;
                   const level = activity?.level ?? activity?.count ?? 0;
-                  const title = date
-                    ? `${formatPersianDate(date)} • ${levelLabelFa(level)}`
-                    : "";
-
+                  const title = date ? `${toPersianDate(date)} • ${levelLabelFa(level)}` : "";
                   return (
-                    <g key={date || "activity-empty"}>
+                    <g
+                      key={
+                        date
+                          ? `activity-${date}`
+                          : `empty-${block?.props?.x ?? 0}-${block?.props?.y ?? 0}`
+                      }
+                    >
                       <title>{title}</title>
                       {block}
                     </g>
@@ -363,235 +411,30 @@ export default function StatusPage() {
                 }}
                 labels={{
                   months: [
-                    "Jan",
-                    "Feb",
-                    "Mar",
-                    "Apr",
-                    "May",
-                    "Jun",
-                    "Jul",
-                    "Aug",
-                    "Sep",
-                    "Oct",
-                    "Nov",
-                    "Dec",
+                    "فروردین",
+                    "اردیبهشت",
+                    "خرداد",
+                    "تیر",
+                    "مرداد",
+                    "شهریور",
+                    "مهر",
+                    "آبان",
+                    "آذر",
+                    "دی",
+                    "بهمن",
+                    "اسفند",
                   ],
-                  weekdays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-                  legend: {
-                    less: "Low",
-                    more: "Full",
-                  },
+                  weekdays: ["ش", "ی", "د", "س", "چ", "پ", "ج"],
+                  legend: { less: "کم", more: "کامل" },
                 }}
-                theme={{
-                  dark: missionConsoleColors,
-                  light: missionConsoleColors,
-                }}
+                theme={{ dark: missionConsoleColors, light: missionConsoleColors }}
               />
             </div>
           </div>
         ) : (
-          <p className="text-xs font-mono text-muted">
-            CALCULATING DATA METRICS...
-          </p>
+          <p className="text-xs font-mono text-muted">CALCULATING DATA METRICS...</p>
         )}
       </section>
-
-      <section className="bg-card border border-subtle rounded-lg p-6">
-        <h3 className="text-sm font-mono text-steel-blue mb-4 tracking-wider">
-          [ 📚 ] COURSE PROGRESS
-        </h3>
-
-        {isLoadingCourses ? (
-          <div className="flex justify-center py-8">
-            <span className="text-xs font-mono text-muted animate-pulse">
-              LOADING COURSES...
-            </span>
-          </div>
-        ) : courses.length === 0 ? (
-          <div className="text-center py-8">
-            <p className="text-xs font-mono text-muted">
-              هیچ دوره‌ای ثبت نشده است.
-            </p>
-            <p className="text-[10px] font-mono text-muted/50 mt-2">
-              برای افزودن دوره به بخش "مدیریت و ویرایش" بروید.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {courses.map((courseItem) => (
-              <div key={courseItem.id} className="group">
-                <div className="flex justify-between items-center text-xs mb-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-main font-bold">
-                      {courseItem.name}
-                    </span>
-                    {courseItem.isCritical && (
-                      <span className="text-[8px] font-mono text-amber-active border border-amber-active/30 px-1.5 py-0.5 rounded">
-                        CRITICAL
-                      </span>
-                    )}
-                    {courseItem.progress === 100 && (
-                      <span className="text-[8px] font-mono text-sage-green border border-sage-green/30 px-1.5 py-0.5 rounded">
-                        COMPLETED
-                      </span>
-                    )}
-                  </div>
-                  <span className="font-mono text-muted">
-                    {courseItem.progress}%
-                    <span className="text-[9px] text-muted/50 ml-1">
-                      ({courseItem.currentEpisode || 0}/
-                      {courseItem.totalEpisodes})
-                    </span>
-                  </span>
-                </div>
-
-                <div className="w-full h-2.5 bg-[#232B36] border border-subtle/30 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-700 ease-out group-hover:brightness-110 ${
-                      courseItem.progress === 100
-                        ? "bg-sage-green"
-                        : "bg-[#F5A623]"
-                    }`}
-                    style={{ width: `${courseItem.progress}%` }}
-                  />
-                </div>
-
-                {courseItem.instructor && (
-                  <div className="text-[9px] font-mono text-muted/50 mt-1">
-                    {courseItem.instructor}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="bg-card border border-subtle rounded-lg p-6">
-        <h3 className="text-sm font-mono text-muted-purple mb-4 tracking-wider">
-          [ ⚡ ] WEEKLY KPIs
-        </h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-          <div className="bg-card/60 border border-subtle rounded-md p-3">
-            <div className="text-muted mb-1">روزهای کامل</div>
-            <div className="text-2xl font-black text-amber-active font-mono">
-              {weeklyStats.fullDays}
-            </div>
-            <div className="text-[9px] text-muted/50 mt-1">از ۷ روز</div>
-          </div>
-          <div className="bg-card/60 border border-subtle rounded-md p-3">
-            <div className="text-muted mb-1">نسبت خروجی</div>
-            <div className="text-lg font-black text-steel-blue font-mono">
-              {weeklyStats.outcomeRatio}x
-            </div>
-            <div className="text-[9px] text-muted/50 mt-1">
-              {weeklyStats.doneTasks}/{weeklyStats.totalTasks} تسک
-            </div>
-          </div>
-          <div className="bg-card/60 border border-subtle rounded-md p-3">
-            <div className="text-muted mb-1">کل تسک‌ها</div>
-            <div className="text-2xl font-black text-main font-mono">
-              {weeklyStats.totalTasks}
-            </div>
-            <div className="text-[9px] text-muted/50 mt-1">این هفته</div>
-          </div>
-          <div className="bg-card/60 border border-subtle rounded-md p-3">
-            <div className="text-muted mb-1">تکمیل‌شده</div>
-            <div className="text-2xl font-black text-sage-green font-mono">
-              {weeklyStats.doneTasks}
-            </div>
-            <div className="text-[9px] text-muted/50 mt-1">
-              {weeklyStats.totalTasks > 0
-                ? Math.round(
-                    (weeklyStats.doneTasks / weeklyStats.totalTasks) * 100
-                  )
-                : 0}
-              %
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <button
-        onClick={handleWeeklyAnalysis}
-        disabled={isCoachLoading}
-        className={`w-full mt-6 p-3 rounded-md font-mono text-sm border transition flex items-center justify-center gap-2 ${
-          isCoachLoading
-            ? "border-subtle text-muted cursor-not-allowed opacity-60"
-            : "border-amber-active text-amber-active hover:bg-amber-active/10"
-        }`}
-      >
-        {isCoachLoading ? (
-          <>
-            <span className="animate-spin inline-block w-4 h-4 border-2 border-amber-active border-t-transparent rounded-full"></span>
-            تحلیل در حال انجام...
-          </>
-        ) : (
-          "[ 🧠 ] تحلیل هفتگی عملکرد توسط AI"
-        )}
-      </button>
-
-      <div className="bg-card border border-subtle p-6 rounded-lg mt-8">
-        <h3 className="text-sm font-mono text-blue-gray mb-4">
-          [ ⬇ ] DATA EXPORT
-        </h3>
-
-        <div className="flex gap-2 mb-4">
-          <button
-            onClick={() => handleExport("csv", "7")}
-            disabled={isExporting}
-            className="flex-1 bg-base border border-subtle text-muted py-2 rounded font-mono text-xs hover:bg-subtle hover:text-main transition disabled:opacity-50"
-          >
-            CSV (7 Days)
-          </button>
-          <button
-            onClick={() => handleExport("csv", "30")}
-            disabled={isExporting}
-            className="flex-1 bg-base border border-subtle text-muted py-2 rounded font-mono text-xs hover:bg-subtle hover:text-main transition disabled:opacity-50"
-          >
-            CSV (30 Days)
-          </button>
-          <button
-            onClick={() => handleExport("csv", "all")}
-            disabled={isExporting}
-            className="flex-1 bg-base border border-subtle text-muted py-2 rounded font-mono text-xs hover:bg-subtle hover:text-main transition disabled:opacity-50"
-          >
-            CSV (All)
-          </button>
-        </div>
-
-        <div className="flex gap-2">
-          <button
-            onClick={() => handleExport("json", "7")}
-            disabled={isExporting}
-            className="flex-1 bg-amber-active/10 border border-amber-active text-amber-active py-2 rounded font-mono text-xs hover:bg-amber-active/20 transition disabled:opacity-50"
-          >
-            JSON (7 Days)
-          </button>
-          <button
-            onClick={() => handleExport("json", "30")}
-            disabled={isExporting}
-            className="flex-1 bg-amber-active/10 border border-amber-active text-amber-active py-2 rounded font-mono text-xs hover:bg-amber-active/20 transition disabled:opacity-50"
-          >
-            JSON (30 Days)
-          </button>
-          <button
-            onClick={() => handleExport("json", "all")}
-            disabled={isExporting}
-            className="flex-1 bg-amber-active/10 border border-amber-active text-amber-active py-2 rounded font-mono text-xs hover:bg-amber-active/20 transition disabled:opacity-50"
-          >
-            JSON (All)
-          </button>
-        </div>
-      </div>
-
-      <CoachReportModal
-        isOpen={isCoachModalOpen}
-        onClose={() => setIsCoachModalOpen(false)}
-        isLoading={isCoachLoading}
-        error={coachError}
-        reportData={coachReport}
-      />
     </div>
   );
 }

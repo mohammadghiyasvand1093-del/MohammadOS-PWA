@@ -1,3 +1,18 @@
+const RATE_LIMIT_MESSAGE =
+  "تعداد درخواست‌ها بیش از حد مجاز است. لطفاً چند لحظه دیگر دوباره تلاش کن.";
+
+const getErrorMessage = (error) => {
+  if (!error) return "";
+
+  const message = typeof error === "string" ? error : error.message || "";
+
+  if (message.includes("429") || message.includes("Rate Limit")) {
+    return RATE_LIMIT_MESSAGE;
+  }
+
+  return message || "خطای نامشخصی رخ داد. لطفاً دوباره تلاش کن.";
+};
+
 export default function CoachReportModal({
   isOpen,
   onClose,
@@ -6,6 +21,8 @@ export default function CoachReportModal({
   reportData,
 }) {
   if (!isOpen) return null;
+
+  const errorMessage = getErrorMessage(error);
 
   return (
     <div
@@ -41,7 +58,7 @@ export default function CoachReportModal({
         {error && !isLoading && (
           <div className="bg-red-900/20 border border-red-500/50 text-red-400 p-4 rounded-md text-center">
             <p className="font-mono text-sm">[!] خطا در ارتباط با مربی</p>
-            <p className="text-xs mt-2 text-red-300">{error}</p>
+            <p className="text-xs mt-2 text-red-300">{errorMessage}</p>
           </div>
         )}
 

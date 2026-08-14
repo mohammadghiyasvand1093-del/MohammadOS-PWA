@@ -3,18 +3,36 @@
 import { db } from "../db/database";
 import { getLocalDateKey } from "../utils/date";
 
+function toSafeNumber(value, fallback = 0) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : fallback;
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
 export const CourseRepository = {
   /**
    * دریافت تمام دوره‌ها همراه با محاسبه درصد پیشرفت و مرتب‌سازی
    */
   async getAll(options = {}) {
-    const { sortBy = "name", order = "asc", criticalFirst = true } = options;
+    const {
+      sortBy = "name",
+      order = "asc",
+      criticalFirst = true,
+      calculateByEpisodesField = false,
+    } = options;
 
     const courses = await db.courses.toArray();
 
     const coursesWithProgress = await Promise.all(
       courses.map(async (course) => {
-        const progress = await this.getProgress(course.id);
+        const progress = await this.getProgress(
+          course.id,
+          calculateByEpisodesField
+        );
+
         return {
           ...course,
           progress,
@@ -22,15 +40,12 @@ export const CourseRepository = {
       })
     );
 
-    // مرتب‌سازی
     coursesWithProgress.sort((a, b) => {
-      // اول: دوره‌های حیاتی
       if (criticalFirst) {
         if (a.isCritical && !b.isCritical) return -1;
         if (!a.isCritical && b.isCritical) return 1;
       }
 
-      // دوم: بر اساس sortBy
       let valA = a[sortBy] ?? "";
       let valB = b[sortBy] ?? "";
 
@@ -48,7 +63,9 @@ export const CourseRepository = {
   /**
    * خلاصه داشبورد برای StatusPage
    */
-  async getDashboardSummary() {
+  async getDashboardSummary(options = {}) {
+    const { calculateByEpisodesField = true } = options;
+
     const courses = await db.courses.toArray();
     const sessions = await db.courseSessions.toArray();
 
@@ -56,9 +73,14 @@ export const CourseRepository = {
     const criticalCourses = courses.filter((c) => c.isCritical).length;
 
     let totalProgress = 0;
+
     for (const course of courses) {
-      totalProgress += await this.getProgress(course.id);
+      totalProgress += await this.getProgress(
+        course.id,
+        calculateByEpisodesField
+      );
     }
+
     const avgProgress =
       totalCourses > 0 ? Math.round(totalProgress / totalCourses) : 0;
 
@@ -77,11 +99,14 @@ export const CourseRepository = {
   /**
    * دریافت دوره به همراه درصد پیشرفت
    */
-  async getById(id) {
+  async getById(id, options = {}) {
+    const { calculateByEpisodesField = false } = options;
+
     const course = await db.courses.get(id);
     if (!course) return null;
 
-    const progress = await this.getProgress(id);
+    const progress = await this.getProgress(id, calculateByEpisodesField);
+
     return {
       ...course,
       progress,
@@ -93,21 +118,38 @@ export const CourseRepository = {
    */
   async getProgress(courseId, calculateByEpisodesField = false) {
     const course = await db.courses.get(courseId);
-    if (!course || !course.totalEpisodes || course.totalEpisodes === 0) return 0;
+    if (!course) return 0;
+
+    const totalEpisodes = toSafeNumber(course.totalEpisodes);
+    if (totalEpisodes <= 0) return 0;
 
     if (calculateByEpisodesField) {
-      const percentage =
-        (course.currentEpisode / course.totalEpisodes) * 100;
-      return Math.min(100, Math.max(0, Math.round(percentage)));
+      const currentEpisode = clampNumber(
+        toSafeNumber(course.currentEpisode),
+        0,
+        totalEpisodes
+      );
+
+      const percentage = (currentEpisode / totalEpisodes) * 100;
+      return clampNumber(Math.round(percentage), 0, 100);
     }
 
-    const completedSessionsCount = await db.courseSessions
-      .where({ courseId, status: "completed" })
-      .count();
+    const completedSessions = await db.courseSessions
+      .where("courseId")
+      .equals(courseId)
+      .filter((session) => session.status === "completed")
+      .toArray();
 
-    const percentage =
-      (completedSessionsCount / course.totalEpisodes) * 100;
-    return Math.min(100, Math.max(0, Math.round(percentage)));
+    const completedEpisodeNumbers = new Set(
+      completedSessions
+        .map((session) => toSafeNumber(session.episodeNumber))
+        .filter((episodeNumber) => episodeNumber > 0)
+    );
+
+    const completedSessionsCount = completedEpisodeNumbers.size;
+    const percentage = (completedSessionsCount / totalEpisodes) * 100;
+
+    return clampNumber(Math.round(percentage), 0, 100);
   },
 
   /**
@@ -118,16 +160,26 @@ export const CourseRepository = {
     const now = new Date();
     const nowIso = now.toISOString();
     const dateStr = getLocalDateKey(now);
-    const startEpisode = Number(courseData.currentEpisode) || 0;
+
+    const totalEpisodes = Math.max(
+      0,
+      Math.floor(toSafeNumber(courseData.totalEpisodes))
+    );
+
+    const startEpisode = clampNumber(
+      Math.floor(toSafeNumber(courseData.currentEpisode)),
+      0,
+      totalEpisodes
+    );
 
     const course = {
       id,
       name: courseData.name.trim(),
       instructor: courseData.instructor?.trim() || "",
-      totalEpisodes: Number(courseData.totalEpisodes) || 0,
+      totalEpisodes,
       currentEpisode: startEpisode,
       link: courseData.link?.trim() || "",
-      isCritical: courseData.isCritical || false,
+      isCritical: Boolean(courseData.isCritical),
       createdAt: nowIso,
       updatedAt: nowIso,
     };
@@ -137,6 +189,7 @@ export const CourseRepository = {
 
       if (startEpisode > 0) {
         const sessionPromises = [];
+
         for (let i = 1; i <= startEpisode; i++) {
           sessionPromises.push(
             db.courseSessions.put({
@@ -144,12 +197,13 @@ export const CourseRepository = {
               courseId: id,
               episodeNumber: i,
               status: "completed",
-              note: "ثبت شده در زمان ایجاد دوره (مهاجرت داده)",
+              note: "ثبت شده در زمان ایجاد دوره",
               date: dateStr,
               createdAt: nowIso,
             })
           );
         }
+
         await Promise.all(sessionPromises);
       }
     });
@@ -161,14 +215,37 @@ export const CourseRepository = {
    * به‌روزرسانی اطلاعات دوره
    */
   async update(id, updatedData) {
-    const now = new Date().toISOString();
+    const nowIso = new Date().toISOString();
     const currentData = await db.courses.get(id);
+
     if (!currentData) throw new Error("دوره یافت نشد.");
 
     const updateFields = {
       ...updatedData,
-      updatedAt: now,
+      updatedAt: nowIso,
     };
+
+    if (Object.prototype.hasOwnProperty.call(updatedData, "totalEpisodes")) {
+      updateFields.totalEpisodes = Math.max(
+        0,
+        Math.floor(toSafeNumber(updatedData.totalEpisodes))
+      );
+    }
+
+    if (Object.prototype.hasOwnProperty.call(updatedData, "currentEpisode")) {
+      const totalEpisodes = Object.prototype.hasOwnProperty.call(
+        updateFields,
+        "totalEpisodes"
+      )
+        ? updateFields.totalEpisodes
+        : toSafeNumber(currentData.totalEpisodes);
+
+      updateFields.currentEpisode = clampNumber(
+        Math.floor(toSafeNumber(updatedData.currentEpisode)),
+        0,
+        Math.max(0, totalEpisodes)
+      );
+    }
 
     await db.courses.update(id, updateFields);
     return true;
@@ -181,29 +258,54 @@ export const CourseRepository = {
     const course = await db.courses.get(courseId);
     if (!course) throw new Error("دوره پیدا نشد.");
 
+    const totalEpisodes = toSafeNumber(course.totalEpisodes);
+    if (totalEpisodes <= 0) {
+      throw new Error("تعداد کل قسمت‌های دوره معتبر نیست.");
+    }
+
+    const safeEpisodeNumber = clampNumber(
+      Math.floor(toSafeNumber(episodeNumber)),
+      1,
+      totalEpisodes
+    );
+
     const now = new Date();
+    const nowIso = now.toISOString();
     const dateStr = getLocalDateKey(now);
 
     await db.transaction("rw", [db.courses, db.courseSessions], async () => {
-      // ۱. ساخت رکورد جلسه
-      const session = {
-        id: crypto.randomUUID(),
-        courseId,
-        episodeNumber,
-        status: "completed",
-        note: note.trim(),
-        date: dateStr,
-        createdAt: now.toISOString(),
-      };
+      const existingCompletedSession = await db.courseSessions
+        .where("courseId")
+        .equals(courseId)
+        .filter(
+          (session) =>
+            session.status === "completed" &&
+            toSafeNumber(session.episodeNumber) === safeEpisodeNumber
+        )
+        .first();
 
-      await db.courseSessions.put(session);
+      if (!existingCompletedSession) {
+        await db.courseSessions.put({
+          id: crypto.randomUUID(),
+          courseId,
+          episodeNumber: safeEpisodeNumber,
+          status: "completed",
+          note: note.trim(),
+          date: dateStr,
+          createdAt: nowIso,
+        });
+      }
 
-      // ۲. آپدیت currentEpisode در جدول دوره
-      const nextEpisode = Math.max(course.currentEpisode, episodeNumber);
+      const currentEpisode = toSafeNumber(course.currentEpisode);
+      const nextEpisode = clampNumber(
+        Math.max(currentEpisode, safeEpisodeNumber),
+        0,
+        totalEpisodes
+      );
 
       await db.courses.update(courseId, {
         currentEpisode: nextEpisode,
-        updatedAt: now.toISOString(),
+        updatedAt: nowIso,
       });
     });
 
@@ -216,8 +318,9 @@ export const CourseRepository = {
   async delete(id) {
     await db.transaction("rw", [db.courses, db.courseSessions], async () => {
       await db.courses.delete(id);
-      await db.courseSessions.where({ courseId: id }).delete();
+      await db.courseSessions.where("courseId").equals(id).delete();
     });
+
     return true;
   },
 
@@ -231,10 +334,12 @@ export const CourseRepository = {
       .toArray();
 
     const counts = {};
-    sessions.forEach((s) => {
-      const d = s.date;
-      if (d) {
-        counts[d] = (counts[d] || 0) + 1;
+
+    sessions.forEach((session) => {
+      const date = session.date;
+
+      if (date) {
+        counts[date] = (counts[date] || 0) + 1;
       }
     });
 
