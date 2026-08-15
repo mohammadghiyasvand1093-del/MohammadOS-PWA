@@ -1,5 +1,5 @@
 /* eslint-disable no-undef */
-// api/ai/coach.js  —  M1.1 Serverless Proxy
+// api/ai/coach.js  —  Secured Serverless Proxy
 
 const ALLOWED_ORIGINS = [
   "https://mohammad-os-pwa.vercel.app",
@@ -10,12 +10,11 @@ const ALLOWED_ORIGINS = [
 export default async function handler(req, res) {
   const origin = req.headers.origin;
   
-  // ✅ Fix: Strict CORS validation
   if (ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-    res.setHeader("Access-Control-Max-Age", "86400"); // Cache preflight
+    res.setHeader("Access-Control-Max-Age", "86400");
   }
 
   if (req.method === 'OPTIONS') {
@@ -30,7 +29,6 @@ export default async function handler(req, res) {
   try {
     const { messages, max_tokens = 600, temperature = 0.7 } = req.body;
     
-    // ✅ Fix: Basic Payload Validation
     if (!Array.isArray(messages) || messages.length === 0 || messages.length > 20) {
       return res.status(400).json({ error: 'Invalid messages payload' });
     }
@@ -56,7 +54,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: MODEL,
         messages,
-        max_tokens: Math.min(max_tokens, 1000), // Enforce token limit
+        max_tokens: Math.min(max_tokens, 1000),
         temperature,
         stream: false,
       }),
