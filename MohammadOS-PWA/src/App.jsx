@@ -1,4 +1,3 @@
-// src/App.jsx
 import { BrowserRouter, Routes, Route, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useEffect, lazy, Suspense, useState, useCallback, useRef, useMemo } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -55,7 +54,9 @@ function AppLayout() {
   }, [navigate]);
 
   useKeyboardShortcuts(navigateWithTransition, setCollapsed);
-  useSwipeNavigation(mainRef, location, navigateWithTransition);
+  
+  // ✅ Nazer 2 Fix: استفاده از navigate خام برای سوایپ تا View Transition تداخل نکند
+  useSwipeNavigation(mainRef, location, navigate);
 
   useEffect(() => {
     document.documentElement.lang = "fa";
@@ -77,7 +78,6 @@ function AppLayout() {
     return () => clearTimeout(timer);
   }, [location.pathname]);
 
-  // ✅ Fix: بنر بکاپ فقط اگر دیتایی در دیتابیس وجود داشته باشد نشان داده می‌شود
   useEffect(() => {
     const check = async () => {
       try {

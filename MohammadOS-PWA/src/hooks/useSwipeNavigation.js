@@ -10,6 +10,7 @@ export function useSwipeNavigation(mainRef, location, navigate) {
     let touchStartY = 0;
     let isSwipable = true;
     let currentDeltaX = 0;
+    let isNavigating = false; // ✅ Nazer 2 Fix: Lock for rapid swiping
 
     const resetTransform = () => {
       main.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
@@ -17,7 +18,6 @@ export function useSwipeNavigation(mainRef, location, navigate) {
       main.style.opacity = '';
     };
 
-    // ✅ Nazer 3 Fix: پاک کردن فوری و بدون انیمیشن برای جلوگیری از تداخل در swipe سریع
     const clearTransformInstant = () => {
       main.style.transition = 'none';
       main.style.transform = '';
@@ -25,12 +25,9 @@ export function useSwipeNavigation(mainRef, location, navigate) {
     };
 
     const handleTouchStart = (e) => {
-      // ریست کامل state از swipe قبلی
       touchStartX = e.changedTouches[0].screenX;
       touchStartY = e.changedTouches[0].screenY;
       currentDeltaX = 0;
-      
-      // پاک کردن transform قبلی بدون animation
       clearTransformInstant();
       
       const target = e.target;
@@ -43,6 +40,7 @@ export function useSwipeNavigation(mainRef, location, navigate) {
     const handleTouchMove = (e) => {
       if (!isSwipable) return;
       if (window.innerWidth >= 768) return;
+      if (isNavigating) return; // ✅ اگر در حال ناوبری است، حرکت را متوقف کن
       
       currentDeltaX = e.changedTouches[0].screenX - touchStartX;
       const deltaY = e.changedTouches[0].screenY - touchStartY;
@@ -57,6 +55,7 @@ export function useSwipeNavigation(mainRef, location, navigate) {
     const handleTouchEnd = (e) => {
       if (!isSwipable) return;
       if (window.innerWidth >= 768) return;
+      if (isNavigating) return; // ✅ قفل ناوبری
 
       resetTransform();
       
@@ -72,8 +71,10 @@ export function useSwipeNavigation(mainRef, location, navigate) {
       if (currentIndex === -1) return;
 
       if (deltaX < 0 && currentIndex < navItems.length - 1) {
+        isNavigating = true; // ✅ قفل فعال شود
         navigate(navItems[currentIndex + 1].path);
       } else if (deltaX > 0 && currentIndex > 0) {
+        isNavigating = true; // ✅ قفل فعال شود
         navigate(navItems[currentIndex - 1].path);
       }
     };
@@ -89,9 +90,7 @@ export function useSwipeNavigation(mainRef, location, navigate) {
     main.addEventListener("touchcancel", handleTouchCancel, { passive: true });
     
     return () => {
-      // ✅ Nazer 3 Fix: ریست transform قبل از حذف listener در زمان تغییر مسیر
       clearTransformInstant();
-      
       main.removeEventListener("touchstart", handleTouchStart);
       main.removeEventListener("touchmove", handleTouchMove);
       main.removeEventListener("touchend", handleTouchEnd);
