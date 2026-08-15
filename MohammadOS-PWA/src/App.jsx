@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, NavLink, useNavigate, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, NavLink, useNavigate, useLocation, Navigate } from "react-router-dom";
 import { useEffect, lazy, Suspense, useState, useCallback, useRef, useMemo } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import SidebarWidgets from "./components/SidebarWidgets";
@@ -348,6 +348,8 @@ function AppLayout() {
                 <Route path="/add" element={<AddPage />} />
                 <Route path="/status" element={<StatusPage />} />
                 <Route path="/roadmap" element={<RoadmapPage />} />
+                {/* ✅ Nazer 2 Fix: Fallback route for unknown paths */}
+                <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Suspense>
           </div>

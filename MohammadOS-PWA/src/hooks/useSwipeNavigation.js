@@ -1,7 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { navItems } from "../constants/navigation";
 
 export function useSwipeNavigation(mainRef, location, navigate) {
+  // ✅ Nazer 3 Fix: Use useRef at hook level for navigation lock
+  const lastNavTime = useRef(0);
+  const NAV_LOCK_MS = 300;
+
   useEffect(() => {
     const main = mainRef.current;
     if (!main) return;
@@ -10,7 +14,6 @@ export function useSwipeNavigation(mainRef, location, navigate) {
     let touchStartY = 0;
     let isSwipable = true;
     let currentDeltaX = 0;
-    let isNavigating = false; // ✅ Nazer 2 Fix: Lock for rapid swiping
 
     const resetTransform = () => {
       main.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
@@ -40,7 +43,8 @@ export function useSwipeNavigation(mainRef, location, navigate) {
     const handleTouchMove = (e) => {
       if (!isSwipable) return;
       if (window.innerWidth >= 768) return;
-      if (isNavigating) return; // ✅ اگر در حال ناوبری است، حرکت را متوقف کن
+      // ✅ Check timestamp lock
+      if (Date.now() - lastNavTime.current < NAV_LOCK_MS) return;
       
       currentDeltaX = e.changedTouches[0].screenX - touchStartX;
       const deltaY = e.changedTouches[0].screenY - touchStartY;
@@ -55,7 +59,7 @@ export function useSwipeNavigation(mainRef, location, navigate) {
     const handleTouchEnd = (e) => {
       if (!isSwipable) return;
       if (window.innerWidth >= 768) return;
-      if (isNavigating) return; // ✅ قفل ناوبری
+      if (Date.now() - lastNavTime.current < NAV_LOCK_MS) return;
 
       resetTransform();
       
@@ -71,10 +75,10 @@ export function useSwipeNavigation(mainRef, location, navigate) {
       if (currentIndex === -1) return;
 
       if (deltaX < 0 && currentIndex < navItems.length - 1) {
-        isNavigating = true; // ✅ قفل فعال شود
+        lastNavTime.current = Date.now(); // ✅ Set lock timestamp
         navigate(navItems[currentIndex + 1].path);
       } else if (deltaX > 0 && currentIndex > 0) {
-        isNavigating = true; // ✅ قفل فعال شود
+        lastNavTime.current = Date.now(); // ✅ Set lock timestamp
         navigate(navItems[currentIndex - 1].path);
       }
     };

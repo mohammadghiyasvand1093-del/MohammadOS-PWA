@@ -200,7 +200,7 @@ export default function SidebarWidgets() {
           
           {nearby.hasTimer && (
             <button 
-              onClick={() => navigate("/today")}
+              onClick={() => navigate("/")} // ✅ Nazer 2 Fix
               className="w-full flex items-center gap-2 rounded bg-os-card border border-os-border p-2 hover:border-amber-500/50 transition text-left"
             >
               <span className="text-lg">⏱️</span>
@@ -214,7 +214,7 @@ export default function SidebarWidgets() {
           
           {nearby.undoneCritical > 0 && (
             <button 
-              onClick={() => navigate("/today")}
+              onClick={() => navigate("/")} // ✅ Nazer 2 Fix
               className="w-full flex items-center gap-2 rounded bg-os-card border border-red-500/30 p-2 hover:border-red-500/50 transition text-left"
             >
               <span className="text-lg">🔴</span>
@@ -228,7 +228,7 @@ export default function SidebarWidgets() {
           
           {nearby.undoneTotal > 0 && nearby.undoneCritical === 0 && (
             <button 
-              onClick={() => navigate("/today")}
+              onClick={() => navigate("/")} // ✅ Nazer 2 Fix
               className="w-full flex items-center gap-2 rounded bg-os-card border border-os-border p-2 hover:border-amber-500/50 transition text-left"
             >
               <span className="text-lg">📝</span>
