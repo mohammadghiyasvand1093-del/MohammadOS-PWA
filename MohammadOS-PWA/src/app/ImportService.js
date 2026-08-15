@@ -1,9 +1,10 @@
 // src/app/ImportService.js
 import { db } from "../db/database";
 
+// ✅ Nazer 2 Fix: Corrected table names to match database.js schema
 const IMPORT_TABLES = [
   "dayLogs", "habits", "courses", "gates", "schedules",
-  "timers", "drafts", "lifeWheel"
+  "activeTimer", "drafts", "lifeWheelScores"
 ];
 const MAX_RECORDS_PER_TABLE = 10000;
 
@@ -73,7 +74,6 @@ export const ImportService = {
       try {
         text = await decompressGzip(file);
       } catch {
-        // ✅ Fix: removed unused 'err' variable
         console.warn("Gzip decompression failed, falling back to plain text.");
         text = await file.text();
       }
@@ -84,7 +84,6 @@ export const ImportService = {
     try {
       return JSON.parse(text);
     } catch (err) {
-      // ✅ Fix: added cause to preserve the original error
       throw new Error("INVALID_IMPORT_FORMAT: Not valid JSON", { cause: err });
     }
   }
@@ -104,11 +103,9 @@ function validateScheduleJson(json) {
   if (!Array.isArray(json)) {
     return { valid: false, errors: ["JSON باید یک آرایه باشد"] };
   }
-  
   if (json.length === 0) {
     return { valid: false, errors: ["آرایه خالی است"] };
   }
-  
   if (json.length > 7) {
     return { valid: false, errors: ["حداکثر ۷ روز مجاز است"] };
   }
@@ -164,7 +161,6 @@ export async function importWeeklySchedule(jsonText) {
   try {
     parsed = JSON.parse(jsonText);
   } catch (e) {
-    // ✅ Fix: added cause to preserve the original error
     throw new Error("JSON نامعتبر: " + e.message, { cause: e });
   }
   
@@ -173,9 +169,10 @@ export async function importWeeklySchedule(jsonText) {
     throw new Error("خطای اعتبارسنجی:\n" + validation.errors.join("\n"));
   }
   
-  // Save to db.schedules — replace existing schedule for each day
+  // Save to db.schedules
   for (const day of parsed) {
     await db.schedules.put({
+      id: day.dayOfWeek, // ✅ Nazer 2 Fix: Added missing primary key 'id'
       dayOfWeek: day.dayOfWeek,
       schedule: day.schedule.map(b => ({
         title: b.title,
