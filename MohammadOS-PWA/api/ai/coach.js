@@ -1,11 +1,25 @@
 /* eslint-disable no-undef */
 // api/ai/coach.js  —  M1.1 Serverless Proxy
+
+const ALLOWED_ORIGINS = [
+  "https://mohammad-os-pwa.vercel.app",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173"
+];
+
 export default async function handler(req, res) {
+  const origin = req.headers.origin;
+  
+  // ✅ Fix: Strict CORS validation
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Max-Age", "86400"); // Cache preflight
+  }
+
   if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    return res.status(200).end();
+    return res.status(204).end();
   }
 
   if (req.method !== 'POST') {
@@ -16,6 +30,11 @@ export default async function handler(req, res) {
   try {
     const { messages, max_tokens = 600, temperature = 0.7 } = req.body;
     
+    // ✅ Fix: Basic Payload Validation
+    if (!Array.isArray(messages) || messages.length === 0 || messages.length > 20) {
+      return res.status(400).json({ error: 'Invalid messages payload' });
+    }
+
     const API_KEY = process.env.AVALAI_API_KEY;
     const BASE_URL = process.env.AVALAI_BASE_URL || "https://api.avalai.ir/v1";
     const MODEL = process.env.AVALAI_MODEL || "gpt-4o-mini";
@@ -37,7 +56,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: MODEL,
         messages,
-        max_tokens,
+        max_tokens: Math.min(max_tokens, 1000), // Enforce token limit
         temperature,
         stream: false,
       }),

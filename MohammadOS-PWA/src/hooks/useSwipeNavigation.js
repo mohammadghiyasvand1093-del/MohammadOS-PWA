@@ -11,15 +11,19 @@ export function useSwipeNavigation(mainRef, location, navigate) {
     let isSwipable = true;
     let currentDeltaX = 0;
 
+    const resetTransform = () => {
+      main.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
+      main.style.transform = '';
+      main.style.opacity = '';
+    };
+
     const handleTouchStart = (e) => {
       touchStartX = e.changedTouches[0].screenX;
       touchStartY = e.changedTouches[0].screenY;
-
       const target = e.target;
       const parentCheck = target.closest(
         'input, textarea, select, button, [role="dialog"], [contenteditable], .overflow-x-auto, .overflow-x-scroll'
       );
-
       isSwipable = !parentCheck;
     };
 
@@ -30,11 +34,10 @@ export function useSwipeNavigation(mainRef, location, navigate) {
       currentDeltaX = e.changedTouches[0].screenX - touchStartX;
       const deltaY = e.changedTouches[0].screenY - touchStartY;
       
-      // Apply transform if horizontal swipe is dominant
       if (Math.abs(currentDeltaX) > Math.abs(deltaY) * 0.5 && Math.abs(currentDeltaX) > 10) {
         main.style.transition = 'none';
         main.style.transform = `translateX(${currentDeltaX * 0.4}px)`;
-        main.style.opacity = 1 - Math.min(Math.abs(currentDeltaX) / 400, 0.5); // Fade out slightly
+        main.style.opacity = 1 - Math.min(Math.abs(currentDeltaX) / 400, 0.5);
       }
     };
 
@@ -42,10 +45,7 @@ export function useSwipeNavigation(mainRef, location, navigate) {
       if (!isSwipable) return;
       if (window.innerWidth >= 768) return;
 
-      // Reset visual transform
-      main.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
-      main.style.transform = '';
-      main.style.opacity = '';
+      resetTransform();
       
       const deltaX = e.changedTouches[0].screenX - touchStartX;
       const deltaY = e.changedTouches[0].screenY - touchStartY;
@@ -65,14 +65,21 @@ export function useSwipeNavigation(mainRef, location, navigate) {
       }
     };
 
+    const handleTouchCancel = () => {
+      isSwipable = false;
+      resetTransform();
+    };
+
     main.addEventListener("touchstart", handleTouchStart, { passive: true });
     main.addEventListener("touchmove", handleTouchMove, { passive: true });
     main.addEventListener("touchend", handleTouchEnd, { passive: true });
-
+    main.addEventListener("touchcancel", handleTouchCancel, { passive: true });
+    
     return () => {
       main.removeEventListener("touchstart", handleTouchStart);
       main.removeEventListener("touchmove", handleTouchMove);
       main.removeEventListener("touchend", handleTouchEnd);
+      main.removeEventListener("touchcancel", handleTouchCancel);
     };
   }, [mainRef, location.pathname, navigate]);
 }
