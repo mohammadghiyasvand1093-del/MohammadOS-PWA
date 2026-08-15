@@ -7,6 +7,11 @@ const ALLOWED_ORIGINS = [
   "http://127.0.0.1:5173"
 ];
 
+// ✅ Nazer 3 Fix: Rate Limiting (In-Memory)
+const requestCounts = new Map();
+const RATE_LIMIT = 10; // 10 requests per window
+const RATE_WINDOW = 60000; // 1 minute
+
 export default async function handler(req, res) {
   const origin = req.headers.origin;
   
@@ -24,6 +29,24 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // ✅ Nazer 3 Fix: Rate Limiting Logic
+  const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
+  const now = Date.now();
+  const clientData = requestCounts.get(clientIp) || { count: 0, resetTime: now + RATE_WINDOW };
+  
+  if (now > clientData.resetTime) {
+    clientData.count = 0;
+    clientData.resetTime = now + RATE_WINDOW;
+  }
+  
+  clientData.count++;
+  requestCounts.set(clientIp, clientData);
+  
+  if (clientData.count > RATE_LIMIT) {
+    res.setHeader('Retry-After', Math.ceil((clientData.resetTime - now) / 1000));
+    return res.status(429).json({ error: 'Too many requests. Please try again later.' });
   }
 
   try {

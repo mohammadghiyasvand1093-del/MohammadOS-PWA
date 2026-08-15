@@ -17,9 +17,22 @@ export function useSwipeNavigation(mainRef, location, navigate) {
       main.style.opacity = '';
     };
 
+    // ✅ Nazer 3 Fix: پاک کردن فوری و بدون انیمیشن برای جلوگیری از تداخل در swipe سریع
+    const clearTransformInstant = () => {
+      main.style.transition = 'none';
+      main.style.transform = '';
+      main.style.opacity = '';
+    };
+
     const handleTouchStart = (e) => {
+      // ریست کامل state از swipe قبلی
       touchStartX = e.changedTouches[0].screenX;
       touchStartY = e.changedTouches[0].screenY;
+      currentDeltaX = 0;
+      
+      // پاک کردن transform قبلی بدون animation
+      clearTransformInstant();
+      
       const target = e.target;
       const parentCheck = target.closest(
         'input, textarea, select, button, [role="dialog"], [contenteditable], .overflow-x-auto, .overflow-x-scroll'
@@ -67,7 +80,7 @@ export function useSwipeNavigation(mainRef, location, navigate) {
 
     const handleTouchCancel = () => {
       isSwipable = false;
-      resetTransform();
+      clearTransformInstant();
     };
 
     main.addEventListener("touchstart", handleTouchStart, { passive: true });
@@ -76,6 +89,9 @@ export function useSwipeNavigation(mainRef, location, navigate) {
     main.addEventListener("touchcancel", handleTouchCancel, { passive: true });
     
     return () => {
+      // ✅ Nazer 3 Fix: ریست transform قبل از حذف listener در زمان تغییر مسیر
+      clearTransformInstant();
+      
       main.removeEventListener("touchstart", handleTouchStart);
       main.removeEventListener("touchmove", handleTouchMove);
       main.removeEventListener("touchend", handleTouchEnd);
