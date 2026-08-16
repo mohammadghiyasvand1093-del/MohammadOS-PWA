@@ -54,9 +54,18 @@ function AppLayout() {
   }, [navigate]);
 
   useKeyboardShortcuts(navigateWithTransition, setCollapsed);
-  
-  // ✅ Nazer 2 Fix: استفاده از navigate خام برای سوایپ تا View Transition تداخل نکند
   useSwipeNavigation(mainRef, location, navigate);
+
+  // ✅ Nazer 3 Fix: PWA beforeinstallprompt listener
+  useEffect(() => {
+    const handler = (e) => {
+      e.preventDefault();
+      window.deferredPrompt = e;
+      console.log("PWA Install Prompt captured");
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
 
   useEffect(() => {
     document.documentElement.lang = "fa";
@@ -281,7 +290,8 @@ function AppLayout() {
                   <div className="p-3 border-b border-os-border bg-os-bg/50"><h3 className="text-xs font-bold text-os-text">مرکز نوتیفیکیشن</h3></div>
                   <div className="divide-y divide-os-border/50 max-h-80 overflow-y-auto">
                     {notifications.length === 0 ? (
-                      <div className="p-4 text-center text-xs text-os-text/40">هیچ نوتیفیکیشن جدیدی وجود دارد. ✅</div>
+                      // ✅ Nazer 3 Fix: Corrected typo "دارد" to "ندارد"
+                      <div className="p-4 text-center text-xs text-os-text/40">هیچ نوتیفیکیشن جدیدی وجود ندارد. ✅</div>
                     ) : (
                       notifications.map(n => (
                         <div key={n.id} className="p-3 flex items-start gap-3 hover:bg-os-bg/30 transition">
@@ -348,7 +358,6 @@ function AppLayout() {
                 <Route path="/add" element={<AddPage />} />
                 <Route path="/status" element={<StatusPage />} />
                 <Route path="/roadmap" element={<RoadmapPage />} />
-                {/* ✅ Nazer 2 Fix: Fallback route for unknown paths */}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Suspense>

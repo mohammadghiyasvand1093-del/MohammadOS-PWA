@@ -355,10 +355,16 @@ export default function ReportsPage() {
 
   if (loading) return <div className="flex items-center justify-center h-full min-h-[300px]" role="status"><div className="flex flex-col items-center gap-3"><div className="w-8 h-8 border-2 border-os-border border-t-os-accent rounded-full animate-spin" /><span className="text-[10px] font-mono text-os-text/40 uppercase">Loading Report Data...</span></div></div>;
 
+  // ✅ Nazer 3 Fix: Reordered tabs (pva moved to position 4)
   const tabs = [
-    { id: "weekly", label: "📅 هفتگی" }, { id: "monthly", label: "📊 ماهانه" }, { id: "analytics", label: "📈 تحلیلی" },
-    { id: "roadmap", label: "🗺️ نقشه راه" }, { id: "advisor", label: "📝 مشاور" }, { id: "export", label: "📥 خروجی" },
-    { id: "import", label: "📤 ورودی" }, { id: "pva", label: "⚖️ برنامه vs عملکرد" },
+    { id: "weekly", label: "📅 هفتگی" },
+    { id: "monthly", label: "📊 ماهانه" },
+    { id: "analytics", label: "📈 تحلیلی" },
+    { id: "pva", label: "⚖️ برنامه vs عملکرد" },
+    { id: "roadmap", label: "🗺️ نقشه راه" },
+    { id: "advisor", label: "📝 مشاور" },
+    { id: "export", label: "📥 خروجی" },
+    { id: "import", label: "📤 ورودی" },
   ];
 
   return (
