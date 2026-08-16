@@ -9,8 +9,10 @@ export default defineConfig(({ command }) => ({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'icon-192.png', 'icon-512.png'],
+      // ✅ Nazer 3 Fix: Removed favicon.svg (doesn't exist)
+      includeAssets: ['icon-192.png', 'icon-512.png', 'icons.svg'],
       manifest: {
+        id: '/', // ✅ Nazer 3 Fix: Added id for desktop install
         name: 'MohammadOS',
         short_name: 'MohammadOS',
         description: 'System Kernel v1.1 - Personal Operating System',
@@ -18,6 +20,7 @@ export default defineConfig(({ command }) => ({
         background_color: '#0B0F14',
         display: 'standalone',
         start_url: '/',
+        scope: '/',
         rtl: true,
         // Batch 39: Updated icons array for Android/iOS compatibility
         icons: [
@@ -32,12 +35,32 @@ export default defineConfig(({ command }) => ({
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable'
+          }
+        ],
+        // ✅ Nazer 3 Fix: Added screenshots for desktop install prompt
+        screenshots: [
+          {
+            src: '/icon-512.png', // Using icon-512 as placeholder screenshot
+            sizes: '512x512',
+            type: 'image/png',
+            form_factor: 'wide'
+          }
+        ],
+        // ✅ Nazer 3 Fix: Added shortcuts for Android/Windows long-press menu
+        shortcuts: [
+          {
+            name: 'ثبت عادت',
+            short_name: 'عادت',
+            description: 'ثبت سریع عادت یا رویداد جدید',
+            url: '/add',
+            icons: [{ src: '/icon-192.png', sizes: '192x192' }]
           },
           {
-            src: '/favicon.svg',
-            sizes: 'any',
-            type: 'image/svg+xml',
-            purpose: 'any'
+            name: 'برنامه هفتگی',
+            short_name: 'هفته',
+            description: 'مشاهده برنامه هفتگی',
+            url: '/week',
+            icons: [{ src: '/icon-192.png', sizes: '192x192' }]
           }
         ]
       },
@@ -91,7 +114,6 @@ export default defineConfig(({ command }) => ({
             if (id.includes('react') || id.includes('scheduler')) {
               return 'react';
             }
-            // ✅ FIX (CR-5 Item 2.1): Removed dead code for `recharts`/`d3` as they are uninstalled
             if (id.includes('dexie')) {
               return 'db';
             }
