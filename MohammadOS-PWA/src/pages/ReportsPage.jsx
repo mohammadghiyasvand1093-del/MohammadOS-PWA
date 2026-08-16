@@ -20,7 +20,8 @@ const DOMAINS = [
 const MOOD_LABELS = { 1: "😫 خیلی بد", 2: "😕 بد", 3: "😐 معمولی", 4: "🙂 خوب", 5: "😄 عالی" };
 const HEATMAP_LEVELS = ["bg-os-border/20", "bg-emerald-500/30", "bg-emerald-500/50", "bg-emerald-500/70", "bg-emerald-500"];
 const DOMAIN_COLORS = { learning: "#3B82F6", fitness: "#10B981", discipline: "#F59E0B", work: "#8B5CF6", rest: "#64748B", social: "#EC4899" };
-const IMPORT_TABLES = ["dayLogs", "habits", "courses", "gates", "schedules", "timers", "drafts", "lifeWheel"];
+// ✅ Nazer 3 Fix: Aligned table names for preview logic
+const IMPORT_TABLES = ["dayLogs", "habits", "courses", "gates", "schedules", "activeTimer", "drafts", "lifeWheelScores"];
 
 export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState("weekly");
@@ -354,7 +355,6 @@ export default function ReportsPage() {
 
   if (loading) return <div className="flex items-center justify-center h-full min-h-[300px]" role="status"><div className="flex flex-col items-center gap-3"><div className="w-8 h-8 border-2 border-os-border border-t-os-accent rounded-full animate-spin" /><span className="text-[10px] font-mono text-os-text/40 uppercase">Loading Report Data...</span></div></div>;
 
-  // ✅ Fix: Tabs merged (trends & domainTrend removed)
   const tabs = [
     { id: "weekly", label: "📅 هفتگی" }, { id: "monthly", label: "📊 ماهانه" }, { id: "analytics", label: "📈 تحلیلی" },
     { id: "roadmap", label: "🗺️ نقشه راه" }, { id: "advisor", label: "📝 مشاور" }, { id: "export", label: "📥 خروجی" },
@@ -445,7 +445,6 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* ✅ Fix: Analytics Tab Merged with Trends & DomainTrend */}
       {activeTab === "analytics" && (
         <div id="panel-analytics" role="tabpanel" className="space-y-6">
           <div className="bg-os-card border border-os-border rounded-lg p-4">
@@ -567,7 +566,7 @@ export default function ReportsPage() {
                         <div className="text-xs font-bold text-os-accent mb-2 capitalize">{day.dayOfWeek} ({day.schedule.length} بلوک)</div>
                         <div className="space-y-1.5">
                           {day.schedule.map((b, bidx) => (
-                            <div key={bidx} className="flex items-center gap-2 text-[11px]"><span className="font-mono text-os-text/40 w-20 shrink-0">{b.startTime}-{b.endTime}</span><span className="flex-1 text-os-text truncate">{b.title}</span><span className={`px-1.5 py-0.5 rounded text-[9px] font-mono ${b.type === 'work' ? 'bg-blue-500/10 text-blue-400' : b.type === 'learning' ? 'bg-emerald-500/10 text-emerald-400' : b.type === 'fitness' ? 'bg-red-500/10 text-red-400' : b.type === 'break' ? 'bg-slate-500/10 text-slate-400' : b.type === 'social' ? 'bg-pink-500/10 text-pink-400' : 'bg-amber-500/10 text-amber-400'}`}>{b.type}</span><span className="text-os-text/30 text-[9px]">{b.domain}</span></div>
+                            <div key={bidx} className="flex items-center gap-2 text-[11px]"><span className="font-mono text-os-text/40 w-20 shrink-0">{b.startTime}-{b.endTime}</span><span className="flex-1 text-os-text truncate">{b.title}</span><span className={`px-1.5 py-0.5 rounded text-[9px] font-mono ${b.type === 'course' ? 'bg-sky-500/10 text-sky-400' : b.type === 'fixed' ? 'bg-red-500/10 text-red-400' : b.type === 'habit' ? 'bg-emerald-500/10 text-emerald-400' : b.type === 'break' ? 'bg-slate-500/10 text-slate-400' : 'bg-purple-500/10 text-purple-400'}`}>{b.type}</span><span className="text-os-text/30 text-[9px]">{b.domain}</span></div>
                           ))}
                         </div>
                       </div>

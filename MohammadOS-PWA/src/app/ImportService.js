@@ -1,5 +1,6 @@
 // src/app/ImportService.js
 import { db } from "../db/database";
+import { ScheduleRepository } from "../repositories/ScheduleRepository";
 
 // ✅ Nazer 2 Fix: Corrected table names to match database.js schema
 const IMPORT_TABLES = [
@@ -93,8 +94,10 @@ export const ImportService = {
 // Weekly Schedule Import from AI
 // ═══════════════════════════════════════════
 const VALID_DAYS = ["saturday", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday"];
-const VALID_TYPES = ["work", "learning", "fitness", "break", "social", "discipline"];
-const VALID_DOMAINS = ["کار", "یادگیری", "تناسب‌اندام", "استراحت", "اجتماعی", "انضباط"];
+// ✅ Nazer 3 Fix: Aligned with internal app types
+const VALID_TYPES = ["course", "fixed", "habit", "break", "event"];
+// ✅ Nazer 3 Fix: Aligned with internal English domain keys
+const VALID_DOMAINS = ["learning", "fitness", "discipline", "work", "rest", "social"];
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 function validateScheduleJson(json) {
@@ -169,22 +172,19 @@ export async function importWeeklySchedule(jsonText) {
     throw new Error("خطای اعتبارسنجی:\n" + validation.errors.join("\n"));
   }
   
-  // Save to db.schedules
+  // ✅ Nazer 3 Fix: Use ScheduleRepository to prevent duplicate records and ID conflicts
   for (const day of parsed) {
-    await db.schedules.put({
-      id: day.dayOfWeek, // ✅ Nazer 2 Fix: Added missing primary key 'id'
-      dayOfWeek: day.dayOfWeek,
-      schedule: day.schedule.map(b => ({
-        title: b.title,
-        startTime: b.startTime,
-        endTime: b.endTime,
-        type: b.type,
-        domain: b.domain,
-        isCritical: Boolean(b.isCritical),
-        note: b.note || "",
-      })),
-      updatedAt: new Date().toISOString(),
-    });
+    const scheduleData = day.schedule.map(b => ({
+      title: b.title,
+      startTime: b.startTime,
+      endTime: b.endTime,
+      type: b.type,
+      domain: b.domain,
+      isCritical: Boolean(b.isCritical),
+      note: b.note || "",
+    }));
+    
+    await ScheduleRepository.saveDaySchedule(day.dayOfWeek, scheduleData);
   }
   
   return { importedDays: parsed.length, totalBlocks: parsed.reduce((s, d) => s + d.schedule.length, 0) };
