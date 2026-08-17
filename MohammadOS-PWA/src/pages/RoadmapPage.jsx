@@ -1,5 +1,5 @@
 // src/pages/RoadmapPage.jsx
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { db } from "../db/database";
 import { GateRepository } from "../repositories/GateRepository";
 import CoachReportModal from "../components/CoachReportModal";
@@ -33,7 +33,6 @@ export default function RoadmapPage() {
   const [coachReport, setCoachReport] = useState(null);
   const [isCoachModalOpen, setIsCoachModalOpen] = useState(false);
 
-  // === Import Wizard State (Batch 55) ===
   const [showImportWizard, setShowImportWizard] = useState(false);
   const [importMode, setImportMode] = useState("merge");
   const [aiGuideStep, setAiGuideStep] = useState(1);
@@ -44,7 +43,6 @@ export default function RoadmapPage() {
   const [roadmapImportLoading, setRoadmapImportLoading] = useState(false);
   const copyTimeoutRef = useRef(null);
 
-  // === Inline Edit State (Batch 56) ===
   const [editingGateId, setEditingGateId] = useState(null);
   const [editFormData, setEditFormData] = useState(null);
 
@@ -76,7 +74,6 @@ export default function RoadmapPage() {
     }
   }
 
-  // === Existing: handleAddGate ===
   async function handleAddGate() {
     if (!newGate.title.trim()) return;
 
@@ -129,7 +126,6 @@ export default function RoadmapPage() {
     }
   }
 
-  // === Existing: handleDeleteGate ===
   async function handleDeleteGate(gateId, e) {
     e.stopPropagation();
     if (!window.confirm("آیا از حذف این دروازه اطمینان دارید؟")) return;
@@ -148,7 +144,6 @@ export default function RoadmapPage() {
     }
   }
 
-  // === Existing: toggleCriteria ===
   async function toggleCriteria(gateId, criteriaId) {
     const pendingKey = `${gateId}:${criteriaId}`;
     if (pendingCriteriaRef.current.has(pendingKey)) return;
@@ -214,7 +209,6 @@ export default function RoadmapPage() {
     }
   }
 
-  // === Existing: setAssessment ===
   async function setAssessment(gateId, criteriaId, result) {
     const pendingKey = `${gateId}:${criteriaId}:assess`;
     if (pendingCriteriaRef.current.has(pendingKey)) return;
@@ -270,7 +264,6 @@ export default function RoadmapPage() {
     }
   }
 
-  // === Existing: handleMonthlyReview ===
   async function handleMonthlyReview() {
     setIsCoachModalOpen(true);
     setIsCoachLoading(true);
@@ -315,7 +308,6 @@ export default function RoadmapPage() {
     }
   }
 
-  // === NEW: Roadmap Export Handlers (Batch 57) ===
   const handleExportRoadmapJSON = () => {
     if (gates.length === 0) {
       setError("هیچ Gateی برای خروجی گرفتن وجود ندارد.");
@@ -414,7 +406,6 @@ export default function RoadmapPage() {
     URL.revokeObjectURL(url);
   };
 
-  // === Import Wizard Handlers (Batch 55) ===
   const handleCopyRoadmapPrompt = async () => {
     try {
       await navigator.clipboard.writeText(ROADMAP_PROMPT);
@@ -625,7 +616,6 @@ export default function RoadmapPage() {
     setAiGuideStep(1);
   };
 
-  // === Inline Edit Handlers (Batch 56) ===
   const handleStartEdit = (gate) => {
     setEditingGateId(gate.id);
     setEditFormData({
@@ -709,9 +699,57 @@ export default function RoadmapPage() {
     }));
   };
 
-  const completedGatesCount = gates.filter(
-    (g) => g.criteria.length > 0 && g.criteria.every((c) => c.done)
-  ).length;
+  // === NEW: Roadmap Stats Calculation (Batch 58) ===
+  const roadmapStats = useMemo(() => {
+    let completedGates = 0;
+    let inProgressGates = 0;
+    let lockedGates = 0;
+    let overdueGates = 0;
+    let totalCriteria = 0;
+    let doneCriteria = 0;
+    const todayStr = new Date().toISOString().split("T")[0];
+
+    gates.forEach((g) => {
+      const total = g.criteria?.length || 0;
+      const done = g.criteria?.filter((c) => c.done).length || 0;
+      totalCriteria += total;
+      doneCriteria += done;
+
+      const isComplete = total > 0 && done === total;
+      if (isComplete) {
+        completedGates++;
+      } else if (done > 0) {
+        inProgressGates++;
+      }
+
+      const isLocked =
+        g.dependsOn?.length > 0 &&
+        !g.dependsOn.every(
+          (depId) =>
+            gates.find(
+              (gg) => gg.id === depId && gg.criteria.every((c) => c.done)
+            )
+        );
+      if (isLocked) lockedGates++;
+
+      const isOverdue = g.deadline && g.deadline < todayStr && !isComplete;
+      if (isOverdue) overdueGates++;
+    });
+
+    const completionRate =
+      totalCriteria > 0 ? Math.round((doneCriteria / totalCriteria) * 100) : 0;
+
+    return {
+      totalGates: gates.length,
+      completedGates,
+      inProgressGates,
+      lockedGates,
+      overdueGates,
+      totalCriteria,
+      doneCriteria,
+      completionRate,
+    };
+  }, [gates]);
 
   return (
     <div className="max-w-3xl mx-auto p-1 md:p-4 text-os-text">
@@ -728,7 +766,7 @@ export default function RoadmapPage() {
             className="text-2xl font-bold text-os-accent font-mono"
             dir="ltr"
           >
-            {toPersianNumber(completedGatesCount)} / {toPersianNumber(gates.length)}
+            {toPersianNumber(roadmapStats.completedGates)} / {toPersianNumber(gates.length)}
           </span>
           <p className="text-[9px] font-mono text-os-text/40 tracking-wider">
             GATES COMPLETED
@@ -741,6 +779,105 @@ export default function RoadmapPage() {
           {error}
         </div>
       )}
+
+      {/* === NEW: Stats Dashboard Panel (Batch 58) === */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+        {/* Completion Rate Ring */}
+        <div className="bg-os-card border border-os-border rounded-xl p-4 flex flex-col items-center justify-center col-span-2 md:col-span-1">
+          <div className="relative w-20 h-20">
+            <svg width="80" height="80" viewBox="0 0 80 80" className="-rotate-90">
+              <circle cx="40" cy="40" r="34" fill="none" stroke="currentColor" strokeWidth="6" className="text-os-border/50" />
+              <circle
+                cx="40"
+                cy="40"
+                r="34"
+                fill="none"
+                stroke="#10B981"
+                strokeWidth="6"
+                strokeDasharray={2 * Math.PI * 34}
+                strokeDashoffset={2 * Math.PI * 34 - (roadmapStats.completionRate / 100) * (2 * Math.PI * 34)}
+                strokeLinecap="round"
+              />
+            </svg>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-lg font-bold text-emerald-400">
+                {toPersianNumber(roadmapStats.completionRate)}%
+              </span>
+            </div>
+          </div>
+          <span className="text-[10px] font-mono text-os-text/50 mt-2 uppercase tracking-wider">
+            Completion Rate
+          </span>
+        </div>
+
+        {/* Total Gates */}
+        <div className="bg-os-card border border-os-border rounded-xl p-4 flex flex-col justify-center">
+          <span className="text-[10px] font-mono text-os-text/50 mb-1 uppercase tracking-wider">
+            Total Gates
+          </span>
+          <span className="text-2xl font-bold text-white font-mono">
+            {toPersianNumber(roadmapStats.totalGates)}
+          </span>
+        </div>
+
+        {/* Completed Gates */}
+        <div className="bg-os-card border border-os-border rounded-xl p-4 flex flex-col justify-center">
+          <span className="text-[10px] font-mono text-os-text/50 mb-1 uppercase tracking-wider">
+            Completed
+          </span>
+          <span className="text-2xl font-bold text-emerald-400 font-mono">
+            {toPersianNumber(roadmapStats.completedGates)}
+          </span>
+        </div>
+
+        {/* In Progress */}
+        <div className="bg-os-card border border-os-border rounded-xl p-4 flex flex-col justify-center">
+          <span className="text-[10px] font-mono text-os-text/50 mb-1 uppercase tracking-wider">
+            In Progress
+          </span>
+          <span className="text-2xl font-bold text-amber-400 font-mono">
+            {toPersianNumber(roadmapStats.inProgressGates)}
+          </span>
+        </div>
+
+        {/* Criteria Progress */}
+        <div className="bg-os-card border border-os-border rounded-xl p-4 flex flex-col justify-center col-span-2 md:col-span-2">
+          <span className="text-[10px] font-mono text-os-text/50 mb-1 uppercase tracking-wider">
+            Criteria Done
+          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-2xl font-bold text-sky-400 font-mono">
+              {toPersianNumber(roadmapStats.doneCriteria)} / {toPersianNumber(roadmapStats.totalCriteria)}
+            </span>
+          </div>
+          <div className="w-full h-1.5 bg-os-border rounded-full overflow-hidden mt-2">
+            <div
+              className="h-full bg-sky-500 rounded-full transition-all duration-500"
+              style={{ width: `${roadmapStats.completionRate}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Overdue */}
+        <div className="bg-os-card border border-os-border rounded-xl p-4 flex flex-col justify-center">
+          <span className="text-[10px] font-mono text-os-text/50 mb-1 uppercase tracking-wider">
+            Overdue
+          </span>
+          <span className={`text-2xl font-bold font-mono ${roadmapStats.overdueGates > 0 ? "text-red-500" : "text-os-text/40"}`}>
+            {toPersianNumber(roadmapStats.overdueGates)}
+          </span>
+        </div>
+
+        {/* Locked */}
+        <div className="bg-os-card border border-os-border rounded-xl p-4 flex flex-col justify-center">
+          <span className="text-[10px] font-mono text-os-text/50 mb-1 uppercase tracking-wider">
+            Locked
+          </span>
+          <span className={`text-2xl font-bold font-mono ${roadmapStats.lockedGates > 0 ? "text-slate-400" : "text-os-text/40"}`}>
+            {toPersianNumber(roadmapStats.lockedGates)}
+          </span>
+        </div>
+      </div>
 
       {/* Gates List */}
       <div className="space-y-4 mb-8">
@@ -925,7 +1062,6 @@ export default function RoadmapPage() {
               {isExpanded && (
                 <div className="p-4 pt-0 border-t border-os-border/30 bg-os-bg/30">
                   {isEditing ? (
-                    // === INLINE EDIT MODE ===
                     <div className="pt-4 space-y-3">
                       <div className="flex justify-between items-center mb-2">
                         <h4 className="text-[10px] font-mono text-os-accent uppercase tracking-wider">
@@ -1008,7 +1144,6 @@ export default function RoadmapPage() {
                         placeholder="لینک مدرک"
                       />
 
-                      {/* Criteria Editor in Edit Mode */}
                       <div className="mt-4 pt-3 border-t border-os-border/50">
                         <h5 className="text-[10px] font-mono text-os-text/60 mb-2 uppercase">
                           Criteria Editor
@@ -1047,7 +1182,6 @@ export default function RoadmapPage() {
                       </div>
                     </div>
                   ) : (
-                    // === VIEW MODE (Existing) ===
                     <>
                       <div className="flex justify-end pt-3 pb-2">
                         <button
@@ -1224,7 +1358,7 @@ export default function RoadmapPage() {
         })}
       </div>
 
-      {/* === NEW: Export Roadmap UI (Batch 57) === */}
+      {/* Export Roadmap UI */}
       <div className="grid grid-cols-2 gap-3 mb-8">
         <button
           onClick={handleExportRoadmapJSON}
@@ -1240,7 +1374,7 @@ export default function RoadmapPage() {
         </button>
       </div>
 
-      {/* === Import Roadmap Wizard (Collapsible) === */}
+      {/* Import Roadmap Wizard */}
       <div className="bg-os-card border border-os-border p-4 rounded-xl mb-8">
         <button
           onClick={() => setShowImportWizard(!showImportWizard)}
@@ -1268,7 +1402,6 @@ export default function RoadmapPage() {
 
         {showImportWizard && (
           <div className="mt-6 space-y-4">
-            {/* Step Indicator */}
             <div className="flex gap-2">
               {[1, 2, 3].map((s) => (
                 <div
@@ -1280,7 +1413,6 @@ export default function RoadmapPage() {
               ))}
             </div>
 
-            {/* Step 1: Guide + Copy Prompt */}
             {aiGuideStep === 1 && (
               <div className="space-y-4">
                 <div className="flex items-center gap-2 mb-2">
@@ -1321,7 +1453,6 @@ export default function RoadmapPage() {
               </div>
             )}
 
-            {/* Step 2: Paste JSON */}
             {aiGuideStep === 2 && (
               <div className="space-y-4">
                 <div className="flex items-center gap-2 mb-2">
@@ -1368,7 +1499,6 @@ export default function RoadmapPage() {
               </div>
             )}
 
-            {/* Step 3: Preview + Confirm */}
             {aiGuideStep === 3 && roadmapPreview && (
               <div className="space-y-4">
                 <div className="flex items-center gap-2 mb-2">
@@ -1379,7 +1509,6 @@ export default function RoadmapPage() {
                   </h4>
                 </div>
 
-                {/* Import Mode Selector */}
                 <div className="bg-os-bg/50 p-3 rounded-lg border border-os-border/50">
                   <div className="text-[10px] font-mono text-os-text/60 mb-2 uppercase">
                     Import Mode:
@@ -1413,7 +1542,6 @@ export default function RoadmapPage() {
                   )}
                 </div>
 
-                {/* Preview List */}
                 <div className="space-y-3 max-h-96 overflow-y-auto">
                   {roadmapPreview.map((gate, idx) => (
                     <div
@@ -1505,7 +1633,7 @@ export default function RoadmapPage() {
         )}
       </div>
 
-      {/* Manual Gate Form (preserved) */}
+      {/* Manual Gate Form */}
       <div className="bg-os-card border border-os-border p-6 rounded-xl mb-8">
         <h3 className="text-[10px] font-mono text-os-accent mb-4 uppercase tracking-wider">
           [ + ] DEPLOY NEW CAREER GATE
@@ -1618,7 +1746,6 @@ export default function RoadmapPage() {
         </div>
       </div>
 
-      {/* Monthly Review (preserved) */}
       <button
         onClick={handleMonthlyReview}
         className="w-full p-4 rounded-xl font-mono text-xs md:text-sm border border-os-accent/60 text-os-accent bg-os-accent/5 hover:bg-os-accent/10 transition-all flex items-center justify-center gap-3 active:scale-[0.99]"
