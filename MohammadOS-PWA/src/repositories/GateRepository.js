@@ -3,6 +3,55 @@ import { db } from "../db/database";
 
 export const GateRepository = {
   async getAll() {
-    return await db.gates.toArray();
-  }
+    const data = await db.gates.toArray();
+    return (data || []).sort((a, b) => (a.order || 0) - (b.order || 0));
+  },
+
+  async getById(id) {
+    if (!id) return null;
+    return await db.gates.get(id);
+  },
+
+  async saveGate(gate) {
+    if (!gate?.id) throw new Error("Gate must have an id");
+    await db.gates.put(gate);
+    return gate;
+  },
+
+  async bulkSave(gates) {
+    if (!Array.isArray(gates)) throw new Error("gates must be an array");
+    if (gates.length === 0) return 0;
+    let saved = 0;
+    await db.transaction("rw", db.gates, async () => {
+      await db.gates.bulkPut(gates);
+      saved = gates.length;
+    });
+    return saved;
+  },
+
+  async replaceAll(newGates) {
+    if (!Array.isArray(newGates)) throw new Error("newGates must be an array");
+    let saved = 0;
+    await db.transaction("rw", db.gates, async () => {
+      await db.gates.clear();
+      if (newGates.length > 0) {
+        await db.gates.bulkPut(newGates);
+        saved = newGates.length;
+      }
+    });
+    return saved;
+  },
+
+  async deleteGate(id) {
+    if (!id) return;
+    await db.gates.delete(id);
+  },
+
+  async clearAll() {
+    await db.gates.clear();
+  },
+
+  async count() {
+    return await db.gates.count();
+  },
 };

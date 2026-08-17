@@ -1,11 +1,14 @@
 // src/pages/RoadmapPage.jsx
 import { useState, useEffect, useRef } from "react";
 import { db } from "../db/database";
+import { GateRepository } from "../repositories/GateRepository";
 import CoachReportModal from "../components/CoachReportModal";
 import { runMonthlyReview } from "../ai/coachService";
 import { toPersianNumber } from "../utils/date";
+import { ROADMAP_PROMPT, ROADMAP_GUIDE_TEXT } from "../ai/roadmapPrompt";
 
 export default function RoadmapPage() {
+  // === Existing State (preserved) ===
   const [gates, setGates] = useState([]);
   const [expandedGate, setExpandedGate] = useState(null);
   const [newGate, setNewGate] = useState({
@@ -30,11 +33,28 @@ export default function RoadmapPage() {
   const [coachReport, setCoachReport] = useState(null);
   const [isCoachModalOpen, setIsCoachModalOpen] = useState(false);
 
+  // === NEW: Import Wizard State ===
+  const [showImportWizard, setShowImportWizard] = useState(false);
+  const [importMode, setImportMode] = useState("merge"); // "merge" | "replace"
+  const [aiGuideStep, setAiGuideStep] = useState(1);
+  const [roadmapJsonInput, setRoadmapJsonInput] = useState("");
+  const [roadmapPreview, setRoadmapPreview] = useState(null);
+  const [roadmapImportStatus, setRoadmapImportStatus] = useState("");
+  const [roadmapCopied, setRoadmapCopied] = useState(false);
+  const [roadmapImportLoading, setRoadmapImportLoading] = useState(false);
+  const copyTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     async function loadGates() {
       try {
-        const data = await db.gates.toArray();
-        setGates((data || []).sort((a, b) => (a.order || 0) - (b.order || 0)));
+        const data = await GateRepository.getAll();
+        setGates(data);
       } catch (err) {
         console.error("Error loading gates:", err);
         setError("خطا در بارگذاری نقشه راه");
@@ -43,6 +63,17 @@ export default function RoadmapPage() {
     loadGates();
   }, []);
 
+  // Reload helper (used after import / add / delete)
+  async function reloadGates() {
+    try {
+      const data = await GateRepository.getAll();
+      setGates(data);
+    } catch (err) {
+      console.error("Error reloading gates:", err);
+    }
+  }
+
+  // === Existing: handleAddGate ===
   async function handleAddGate() {
     if (!newGate.title.trim()) return;
 
@@ -76,9 +107,8 @@ export default function RoadmapPage() {
 
     try {
       setError(null);
-      await db.gates.put(gate);
-      const data = await db.gates.toArray();
-      setGates((data || []).sort((a, b) => (a.order || 0) - (b.order || 0)));
+      await GateRepository.saveGate(gate);
+      await reloadGates();
       setNewGate({
         title: "",
         description: "",
@@ -96,15 +126,15 @@ export default function RoadmapPage() {
     }
   }
 
+  // === Existing: handleDeleteGate ===
   async function handleDeleteGate(gateId, e) {
     e.stopPropagation();
     if (!window.confirm("آیا از حذف این دروازه اطمینان دارید؟")) return;
 
     try {
       setError(null);
-      await db.gates.delete(gateId);
-      const data = await db.gates.toArray();
-      setGates((data || []).sort((a, b) => (a.order || 0) - (b.order || 0)));
+      await GateRepository.deleteGate(gateId);
+      await reloadGates();
       if (expandedGate === gateId) {
         setExpandedGate(null);
         setOpenDropdownId(null);
@@ -115,6 +145,7 @@ export default function RoadmapPage() {
     }
   }
 
+  // === Existing: toggleCriteria ===
   async function toggleCriteria(gateId, criteriaId) {
     const pendingKey = `${gateId}:${criteriaId}`;
     if (pendingCriteriaRef.current.has(pendingKey)) return;
@@ -162,7 +193,7 @@ export default function RoadmapPage() {
     }
 
     try {
-      await db.gates.put(nextGateSnapshot);
+      await GateRepository.saveGate(nextGateSnapshot);
     } catch (err) {
       console.error("Error updating criteria in DB:", err);
       setError("خطا در به‌روزرسانی معیار");
@@ -180,6 +211,7 @@ export default function RoadmapPage() {
     }
   }
 
+  // === Existing: setAssessment ===
   async function setAssessment(gateId, criteriaId, result) {
     const pendingKey = `${gateId}:${criteriaId}:assess`;
     if (pendingCriteriaRef.current.has(pendingKey)) return;
@@ -218,7 +250,7 @@ export default function RoadmapPage() {
     });
 
     try {
-      await db.gates.put(nextGateSnapshot);
+      await GateRepository.saveGate(nextGateSnapshot);
       setOpenDropdownId(null);
     } catch (err) {
       console.error("Error updating assessment in DB:", err);
@@ -235,6 +267,7 @@ export default function RoadmapPage() {
     }
   }
 
+  // === Existing: handleMonthlyReview ===
   async function handleMonthlyReview() {
     setIsCoachModalOpen(true);
     setIsCoachLoading(true);
@@ -245,7 +278,7 @@ export default function RoadmapPage() {
       const now = new Date();
       const year = now.getFullYear();
       const month = now.getMonth() + 1;
-      const monthStr = `${year}-${String(month).padStart(2, '0')}`;
+      const monthStr = `${year}-${String(month).padStart(2, "0")}`;
 
       let monthLogs = [];
       try {
@@ -253,7 +286,7 @@ export default function RoadmapPage() {
       } catch (err) {
         console.warn("Schema lacks year/month index, falling back to filter:", err);
         const allLogs = await db.dayLogs.toArray();
-        monthLogs = allLogs.filter(log => log.date && log.date.startsWith(monthStr));
+        monthLogs = allLogs.filter((log) => log.date && log.date.startsWith(monthStr));
       }
 
       const roadmapStatus = {
@@ -279,12 +312,244 @@ export default function RoadmapPage() {
     }
   }
 
+  // === NEW: Import Wizard Handlers ===
+
+  const handleCopyRoadmapPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(ROADMAP_PROMPT);
+      setRoadmapCopied(true);
+      setRoadmapImportStatus("✅ پرامپت با موفقیت کپی شد!");
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+      copyTimeoutRef.current = setTimeout(() => {
+        setRoadmapCopied(false);
+        setRoadmapImportStatus("");
+      }, 2500);
+    } catch {
+      setRoadmapImportStatus("❌ کپی ناموفق - دستی کپی کنید");
+    }
+  };
+
+  /**
+   * Normalize a single AI-provided gate into MohammadOS DB shape.
+   * Accepts:
+   *   - criteria: [{ title }] OR [{ text }]
+   *   - dependsOn: [gate-id] | [gate-title] | ["gate-N"]
+   *   - deadline: ISO string | null
+   */
+  function normalizeImportedGate(rawGate, orderFallback, titleToIdMap, orderToIdMap) {
+    if (!rawGate || typeof rawGate !== "object") return null;
+
+    const title = (rawGate.title || "").toString().trim();
+    if (!title) return null;
+
+    // Parse criteria — accept both {title} and {text}
+    const rawCriteria = Array.isArray(rawGate.criteria) ? rawGate.criteria : [];
+    const criteria = rawCriteria
+      .map((c) => {
+        if (!c || typeof c !== "object") return null;
+        const text = (c.title || c.text || "").toString().trim();
+        if (!text) return null;
+        return {
+          id: crypto.randomUUID(),
+          text,
+          done: false,
+          assessmentResult: "pending",
+          estimatedHours: c.estimatedHours ? Number(c.estimatedHours) : null,
+        };
+      })
+      .filter(Boolean);
+
+    // Resolve dependsOn — accept gate ids, titles, or "gate-N" patterns
+    const rawDeps = Array.isArray(rawGate.dependsOn) ? rawGate.dependsOn : [];
+    const dependsOn = rawDeps
+      .map((dep) => {
+        if (!dep) return null;
+        const depStr = dep.toString().trim();
+        if (!depStr) return null;
+
+        // Direct title match → resolve to id
+        if (titleToIdMap.has(depStr)) return titleToIdMap.get(depStr);
+
+        // Try "gate-N" pattern → resolve by order
+        const gateMatch = depStr.match(/^gate-(\d+)$/i);
+        if (gateMatch) {
+          const orderNum = parseInt(gateMatch[1], 10);
+          if (orderToIdMap.has(orderNum)) return orderToIdMap.get(orderNum);
+        }
+
+        // Fallback: keep as-is (user can fix later via edit)
+        return depStr;
+      })
+      .filter(Boolean);
+
+    // Parse deadline — strict ISO check
+    let deadline = null;
+    if (rawGate.deadline && typeof rawGate.deadline === "string") {
+      const d = rawGate.deadline.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(d)) deadline = d;
+    }
+
+    return {
+      id: crypto.randomUUID(),
+      title,
+      description: (rawGate.description || "").toString().trim(),
+      constraintNote: (rawGate.constraintNote || "").toString().trim(),
+      deadline,
+      deadlineNote: (rawGate.deadlineNote || "").toString().trim(),
+      order: Number(rawGate.order) || orderFallback,
+      dependsOn,
+      criteria,
+      evidenceLink: rawGate.evidenceLink
+        ? rawGate.evidenceLink.toString().trim()
+        : null,
+      linkedRefIds: [],
+      progress: 0,
+    };
+  }
+
+  const handleParseRoadmapJson = () => {
+    setRoadmapImportStatus("");
+    setRoadmapPreview(null);
+
+    if (!roadmapJsonInput.trim()) {
+      setRoadmapImportStatus("❌ ابتدا JSON را پیست کنید");
+      return;
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(roadmapJsonInput);
+    } catch (e) {
+      setRoadmapImportStatus("❌ JSON نامعتبر: " + e.message);
+      return;
+    }
+
+    // Auto-detect format: { gates: [...] } | [ ... ] | { ...single gate }
+    let gatesArray;
+    if (Array.isArray(parsed)) {
+      gatesArray = parsed;
+    } else if (parsed && Array.isArray(parsed.gates)) {
+      gatesArray = parsed.gates;
+    } else if (parsed && typeof parsed === "object" && parsed.title) {
+      gatesArray = [parsed];
+    } else {
+      setRoadmapImportStatus(
+        "❌ ساختار نامعتبر — باید { gates: [...] } یا آرایه [...] باشد"
+      );
+      return;
+    }
+
+    if (gatesArray.length === 0) {
+      setRoadmapImportStatus("❌ هیچ Gateی در JSON یافت نشد");
+      return;
+    }
+
+    // First pass: build titleToIdMap & orderToIdMap (so dependsOn can resolve)
+    const titleToIdMap = new Map();
+    const orderToIdMap = new Map();
+    gatesArray.forEach((g) => {
+      const title = (g?.title || "").toString().trim();
+      const order = Number(g?.order) || null;
+      const newId = crypto.randomUUID();
+      if (title) titleToIdMap.set(title, newId);
+      if (order) orderToIdMap.set(order, newId);
+    });
+
+    // Second pass: normalize each gate
+    const normalized = gatesArray
+      .map((g, idx) => normalizeImportedGate(g, idx + 1, titleToIdMap, orderToIdMap))
+      .filter(Boolean);
+
+    if (normalized.length === 0) {
+      setRoadmapImportStatus("❌ هیچ Gate معتبری پس از اعتبارسنجی یافت نشد");
+      return;
+    }
+
+    // Soft warning: gates without criteria
+    const gatesWithoutCriteria = normalized.filter((g) => g.criteria.length === 0);
+    if (gatesWithoutCriteria.length > 0) {
+      setRoadmapImportStatus(
+        `⚠️ ${toPersianNumber(
+          gatesWithoutCriteria.length
+        )} Gate بدون معیار است — ادامه می‌دهیم ولی بهتر است بررسی کنید`
+      );
+    } else {
+      setRoadmapImportStatus(
+        `✅ ${toPersianNumber(normalized.length)} Gate آماده وارد کردن است`
+      );
+    }
+
+    setRoadmapPreview(normalized);
+    setAiGuideStep(3);
+  };
+
+  const handleImportRoadmap = async () => {
+    if (!roadmapPreview || roadmapPreview.length === 0) return;
+
+    // Extra confirmation for replace mode
+    if (
+      importMode === "replace" &&
+      gates.length > 0 &&
+      !window.confirm(
+        `⚠️ حالت جایگزینی: تمام ${toPersianNumber(
+          gates.length
+        )} Gate فعلی حذف خواهند شد و ${toPersianNumber(
+          roadmapPreview.length
+        )} Gate جدید جایگزین می‌شوند. ادامه می‌دهی؟`
+      )
+    ) {
+      return;
+    }
+
+    setRoadmapImportLoading(true);
+    setRoadmapImportStatus("در حال وارد کردن...");
+
+    try {
+      let savedCount;
+      if (importMode === "replace") {
+        savedCount = await GateRepository.replaceAll(roadmapPreview);
+      } else {
+        savedCount = await GateRepository.bulkSave(roadmapPreview);
+      }
+
+      await reloadGates();
+
+      setRoadmapImportStatus(
+        `✅ ${toPersianNumber(savedCount)} Gate با موفقیت ${
+          importMode === "replace" ? "جایگزین" : "اضافه"
+        } شد`
+      );
+
+      // Auto-close wizard after success
+      setTimeout(() => {
+        setRoadmapPreview(null);
+        setRoadmapJsonInput("");
+        setRoadmapImportStatus("");
+        setAiGuideStep(1);
+        setShowImportWizard(false);
+      }, 1800);
+    } catch (err) {
+      console.error("Roadmap import error:", err);
+      setRoadmapImportStatus("❌ خطا در وارد کردن: " + (err.message || "نامشخص"));
+    } finally {
+      setRoadmapImportLoading(false);
+    }
+  };
+
+  const handleCancelImport = () => {
+    setRoadmapPreview(null);
+    setRoadmapJsonInput("");
+    setRoadmapImportStatus("");
+    setAiGuideStep(1);
+  };
+
   const completedGatesCount = gates.filter(
     (g) => g.criteria.length > 0 && g.criteria.every((c) => c.done)
   ).length;
 
   return (
     <div className="max-w-3xl mx-auto p-1 md:p-4 text-os-text">
+      {/* Header */}
       <div className="flex justify-between items-center mb-8 bg-os-card/40 p-4 rounded-xl border border-os-border/50">
         <div>
           <h2 className="text-lg font-bold text-white">نقشه راه مسیر شغلی</h2>
@@ -293,10 +558,15 @@ export default function RoadmapPage() {
           </p>
         </div>
         <div className="text-left">
-          <span className="text-2xl font-bold text-os-accent font-mono" dir="ltr">
+          <span
+            className="text-2xl font-bold text-os-accent font-mono"
+            dir="ltr"
+          >
             {toPersianNumber(completedGatesCount)} / {toPersianNumber(gates.length)}
           </span>
-          <p className="text-[9px] font-mono text-os-text/40 tracking-wider">GATES COMPLETED</p>
+          <p className="text-[9px] font-mono text-os-text/40 tracking-wider">
+            GATES COMPLETED
+          </p>
         </div>
       </div>
 
@@ -306,22 +576,29 @@ export default function RoadmapPage() {
         </div>
       )}
 
+      {/* Gates List */}
       <div className="space-y-4 mb-8">
         {gates.length === 0 && (
           <div className="bg-os-card border border-dashed border-os-border/60 p-8 text-center rounded-lg">
             <p className="text-os-text/50 font-mono text-xs">
-              NO GATES DEFINED YET. DEFINE YOUR FIRST MILESTONE BELOW.
+              NO GATES DEFINED YET. DEFINE YOUR FIRST MILESTONE BELOW OR IMPORT
+              FROM AI ADVISOR.
             </p>
           </div>
         )}
 
         {gates.map((gate) => {
           const doneCount = gate.criteria.filter((c) => c.done).length;
-          const progress = gate.criteria.length > 0 ? (doneCount / gate.criteria.length) * 100 : 0;
+          const progress =
+            gate.criteria.length > 0
+              ? (doneCount / gate.criteria.length) * 100
+              : 0;
           const isExpanded = expandedGate === gate.id;
 
           const evidenceUrl = gate.evidenceLink
-            ? (/^https?:\/\//i.test(gate.evidenceLink) ? gate.evidenceLink : `https://${gate.evidenceLink}`)
+            ? /^https?:\/\//i.test(gate.evidenceLink)
+              ? gate.evidenceLink
+              : `https://${gate.evidenceLink}`
             : null;
 
           const assessmentSummary = gate.criteria.reduce(
@@ -333,7 +610,11 @@ export default function RoadmapPage() {
             { pending: 0, pass: 0, fail: 0 }
           );
 
-          const { pending: pendingCount, pass: passCount, fail: failCount } = assessmentSummary;
+          const {
+            pending: pendingCount,
+            pass: passCount,
+            fail: failCount,
+          } = assessmentSummary;
 
           const progressBarColor = (() => {
             const total = gate.criteria.length;
@@ -346,9 +627,14 @@ export default function RoadmapPage() {
 
           const hasConstraint = Boolean(gate.constraintNote?.trim());
           const hasDeadline = Boolean(gate.deadline);
-          const isLocked = gate.dependsOn?.length > 0 && !gate.dependsOn.every((depId) =>
-            gates.find((g) => g.id === depId && g.criteria.every((c) => c.done))
-          );
+          const isLocked =
+            gate.dependsOn?.length > 0 &&
+            !gate.dependsOn.every(
+              (depId) =>
+                gates.find(
+                  (g) => g.id === depId && g.criteria.every((c) => c.done)
+                )
+            );
 
           return (
             <div
@@ -366,7 +652,9 @@ export default function RoadmapPage() {
               >
                 <div className="flex-1 min-w-0 pl-4">
                   <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <h3 className="font-bold text-sm md:text-base text-white truncate">{gate.title}</h3>
+                    <h3 className="font-bold text-sm md:text-base text-white truncate">
+                      {gate.title}
+                    </h3>
                     {hasConstraint && (
                       <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400">
                         ⚠️ محدودیت
@@ -385,28 +673,38 @@ export default function RoadmapPage() {
                   </div>
 
                   {gate.description && (
-                    <p className="text-[10px] text-os-text/50 mb-1 line-clamp-1">{gate.description}</p>
+                    <p className="text-[10px] text-os-text/50 mb-1 line-clamp-1">
+                      {gate.description}
+                    </p>
                   )}
 
                   {hasDeadline && (
                     <p className="text-[10px] font-mono text-amber-400/70 mb-1">
-                      ⏰ ددلاین: {gate.deadline} {gate.deadlineNote && `— ${gate.deadlineNote}`}
+                      ⏰ ددلاین: {gate.deadline}{" "}
+                      {gate.deadlineNote && `— ${gate.deadlineNote}`}
                     </p>
                   )}
 
                   <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                     <span className="text-[10px] font-mono text-os-text/40">
-                      {toPersianNumber(doneCount)}/{toPersianNumber(gate.criteria.length)} CRITERIA
+                      {toPersianNumber(doneCount)}/
+                      {toPersianNumber(gate.criteria.length)} CRITERIA
                     </span>
                     <span className="text-[10px] font-mono flex items-center gap-2">
                       {passCount > 0 && (
-                        <span className="text-emerald-400">✅ {toPersianNumber(passCount)}</span>
+                        <span className="text-emerald-400">
+                          ✅ {toPersianNumber(passCount)}
+                        </span>
                       )}
                       {failCount > 0 && (
-                        <span className="text-red-400">❌ {toPersianNumber(failCount)}</span>
+                        <span className="text-red-400">
+                          ❌ {toPersianNumber(failCount)}
+                        </span>
                       )}
                       {pendingCount > 0 && (
-                        <span className="text-slate-400">⏳ {toPersianNumber(pendingCount)}</span>
+                        <span className="text-slate-400">
+                          ⏳ {toPersianNumber(pendingCount)}
+                        </span>
                       )}
                     </span>
                   </div>
@@ -422,7 +720,9 @@ export default function RoadmapPage() {
 
                   <span
                     className={`font-mono text-xs ${
-                      progress === 100 ? "text-emerald-400 font-bold" : "text-os-text/60"
+                      progress === 100
+                        ? "text-emerald-400 font-bold"
+                        : "text-os-text/60"
                     }`}
                   >
                     {toPersianNumber(Math.round(progress))}%
@@ -451,7 +751,9 @@ export default function RoadmapPage() {
                 <div className="p-4 pt-0 border-t border-os-border/30 bg-os-bg/30">
                   {gate.constraintNote && (
                     <div className="pt-3 pb-2">
-                      <div className="text-[10px] font-mono text-amber-400/80 mb-1">⚠️ محدودیت / فرصت زمانی:</div>
+                      <div className="text-[10px] font-mono text-amber-400/80 mb-1">
+                        ⚠️ محدودیت / فرصت زمانی:
+                      </div>
                       <p className="text-xs text-os-text/70 bg-amber-500/5 border border-amber-500/20 rounded-lg p-3 leading-relaxed">
                         {gate.constraintNote}
                       </p>
@@ -460,7 +762,9 @@ export default function RoadmapPage() {
 
                   {gate.dependsOn?.length > 0 && (
                     <div className="pt-2 pb-1">
-                      <div className="text-[10px] font-mono text-os-text/40 mb-1">🔗 وابسته به:</div>
+                      <div className="text-[10px] font-mono text-os-text/40 mb-1">
+                        🔗 وابسته به:
+                      </div>
                       <div className="flex gap-2 flex-wrap">
                         {gate.dependsOn.map((depId) => {
                           const depGate = gates.find((g) => g.id === depId);
@@ -474,7 +778,8 @@ export default function RoadmapPage() {
                                   : "bg-red-500/10 border-red-500/30 text-red-400"
                               }`}
                             >
-                              {depDone ? "✅" : "🔒"} {depGate?.title || depId}
+                              {depDone ? "✅" : "🔒"}{" "}
+                              {depGate?.title || depId}
                             </span>
                           );
                         })}
@@ -498,13 +803,25 @@ export default function RoadmapPage() {
 
                   <ul className="space-y-2 pt-3">
                     {gate.criteria.map((c) => {
-                      const isPending = pendingCriteriaKeys.has(`${gate.id}:${c.id}`) || pendingCriteriaKeys.has(`${gate.id}:${c.id}:assess`);
+                      const isPending =
+                        pendingCriteriaKeys.has(`${gate.id}:${c.id}`) ||
+                        pendingCriteriaKeys.has(`${gate.id}:${c.id}:assess`);
                       const assessment = c.assessmentResult || "pending";
 
                       const assessmentBadge = {
-                        pending: { label: "⏳", color: "text-slate-400 border-slate-600 bg-slate-500/10" },
-                        pass: { label: "✅", color: "text-emerald-400 border-emerald-500 bg-emerald-500/10" },
-                        fail: { label: "❌", color: "text-red-400 border-red-500 bg-red-500/10" },
+                        pending: {
+                          label: "⏳",
+                          color: "text-slate-400 border-slate-600 bg-slate-500/10",
+                        },
+                        pass: {
+                          label: "✅",
+                          color:
+                            "text-emerald-400 border-emerald-500 bg-emerald-500/10",
+                        },
+                        fail: {
+                          label: "❌",
+                          color: "text-red-400 border-red-500 bg-red-500/10",
+                        },
                       }[assessment];
 
                       return (
@@ -526,7 +843,9 @@ export default function RoadmapPage() {
 
                           <span
                             className={`text-xs md:text-sm flex-1 ${
-                              c.done ? "line-through text-os-text/40" : "text-os-text"
+                              c.done
+                                ? "line-through text-os-text/40"
+                                : "text-os-text"
                             }`}
                           >
                             {c.text}
@@ -540,7 +859,11 @@ export default function RoadmapPage() {
 
                           <div className="relative">
                             <button
-                              onClick={() => setOpenDropdownId(openDropdownId === c.id ? null : c.id)}
+                              onClick={() =>
+                                setOpenDropdownId(
+                                  openDropdownId === c.id ? null : c.id
+                                )
+                              }
                               disabled={isPending}
                               className={`text-[10px] font-mono px-2 py-1 rounded border ${assessmentBadge.color} hover:opacity-80 transition disabled:opacity-50 disabled:cursor-not-allowed`}
                               title={`Assessment: ${assessment}`}
@@ -558,14 +881,21 @@ export default function RoadmapPage() {
                                   {["pending", "pass", "fail"].map((r) => (
                                     <button
                                       key={r}
-                                      onClick={() => setAssessment(gate.id, c.id, r)}
+                                      onClick={() =>
+                                        setAssessment(gate.id, c.id, r)
+                                      }
                                       className={`text-[10px] font-mono px-2 py-1 rounded text-right transition ${
                                         assessment === r
                                           ? "bg-os-accent/20 text-os-accent"
                                           : "hover:bg-os-border/30 text-os-text/70"
                                       }`}
                                     >
-                                      {r === "pending" ? "⏳" : r === "pass" ? "✅" : "❌"} {r}
+                                      {r === "pending"
+                                        ? "⏳"
+                                        : r === "pass"
+                                        ? "✅"
+                                        : "❌"}{" "}
+                                      {r}
                                     </button>
                                   ))}
                                 </div>
@@ -583,6 +913,272 @@ export default function RoadmapPage() {
         })}
       </div>
 
+      {/* === NEW: Import Roadmap Wizard (Collapsible) === */}
+      <div className="bg-os-card border border-os-border p-4 rounded-xl mb-8">
+        <button
+          onClick={() => setShowImportWizard(!showImportWizard)}
+          className="w-full flex items-center justify-between text-right hover:bg-os-border/10 -m-4 p-4 rounded-xl transition"
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-lg">📥</span>
+            <div>
+              <h3 className="text-sm font-bold text-os-accent">
+                Import Roadmap از مشاور AI
+              </h3>
+              <p className="text-[10px] font-mono text-os-text/40 mt-0.5">
+                ساخت نقشه راه با ChatGPT/Claude و وارد کردن JSON
+              </p>
+            </div>
+          </div>
+          <span
+            className={`text-os-text/40 font-bold transition-transform duration-200 ${
+              showImportWizard ? "rotate-180" : ""
+            }`}
+          >
+            ⌄
+          </span>
+        </button>
+
+        {showImportWizard && (
+          <div className="mt-6 space-y-4">
+            {/* Step Indicator */}
+            <div className="flex gap-2">
+              {[1, 2, 3].map((s) => (
+                <div
+                  key={s}
+                  className={`flex-1 h-1 rounded-full transition-colors ${
+                    aiGuideStep >= s ? "bg-os-accent" : "bg-os-border"
+                  }`}
+                />
+              ))}
+            </div>
+
+            {/* Step 1: Guide + Copy Prompt */}
+            {aiGuideStep === 1 && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">🤖</span>
+                  <h4 className="text-sm font-bold text-os-accent">
+                    راهنمای ساخت نقشه راه با AI
+                  </h4>
+                </div>
+                <div className="text-xs text-os-text/70 leading-relaxed whitespace-pre-line bg-os-bg/50 p-4 rounded-lg border border-os-border/50">
+                  {ROADMAP_GUIDE_TEXT}
+                </div>
+                <div className="bg-os-bg/50 p-4 rounded-lg border border-os-border/50 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-os-text">
+                      📋 پرامپت مشاور مسیر شغلی
+                    </span>
+                    <button
+                      onClick={handleCopyRoadmapPrompt}
+                      className={`text-[10px] font-mono px-3 py-1.5 rounded border transition ${
+                        roadmapCopied
+                          ? "bg-emerald-500/10 border-emerald-500 text-emerald-400"
+                          : "bg-os-accent/10 text-os-accent border-os-accent/30 hover:bg-os-accent/20"
+                      }`}
+                    >
+                      {roadmapCopied ? "✅ کپی شد!" : "📋 کپی پرامپت"}
+                    </button>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto text-[10px] font-mono text-os-text/50 bg-os-bg p-3 rounded border border-os-border/30 whitespace-pre-wrap">
+                    {ROADMAP_PROMPT}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setAiGuideStep(2)}
+                  className="w-full py-3 bg-os-accent text-os-bg font-mono text-xs rounded-lg hover:opacity-90 transition active:scale-[0.99]"
+                >
+                  مرحله بعد: Paste JSON →
+                </button>
+              </div>
+            )}
+
+            {/* Step 2: Paste JSON */}
+            {aiGuideStep === 2 && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">📥</span>
+                  <h4 className="text-sm font-bold text-os-accent">
+                    Paste JSON نقشه راه
+                  </h4>
+                </div>
+                <textarea
+                  value={roadmapJsonInput}
+                  onChange={(e) => setRoadmapJsonInput(e.target.value)}
+                  placeholder={`{\n  "gates": [\n    {\n      "title": "...",\n      "criteria": [{ "title": "..." }]\n    }\n  ]\n}`}
+                  className="w-full h-64 bg-os-bg border border-os-border rounded-lg p-3 text-[11px] font-mono focus:outline-none focus:border-os-accent resize-none text-os-text"
+                  dir="ltr"
+                />
+                {roadmapImportStatus && (
+                  <div
+                    className={`text-xs p-2 rounded font-mono ${
+                      roadmapImportStatus.startsWith("✅")
+                        ? "bg-emerald-500/10 text-emerald-400"
+                        : roadmapImportStatus.startsWith("⚠️")
+                        ? "bg-amber-500/10 text-amber-400"
+                        : "bg-red-500/10 text-red-400"
+                    }`}
+                  >
+                    {roadmapImportStatus}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setAiGuideStep(1)}
+                    className="flex-1 py-2 border border-os-border text-os-text/60 font-mono text-xs rounded hover:bg-os-border/20 transition"
+                  >
+                    ← قبلی
+                  </button>
+                  <button
+                    onClick={handleParseRoadmapJson}
+                    disabled={!roadmapJsonInput.trim()}
+                    className="flex-1 py-2 bg-os-accent text-os-bg font-mono text-xs rounded disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition"
+                  >
+                    بررسی و Preview →
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Preview + Confirm */}
+            {aiGuideStep === 3 && roadmapPreview && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">👁️</span>
+                  <h4 className="text-sm font-bold text-os-accent">
+                    پیش‌نمایش نقشه راه ({toPersianNumber(roadmapPreview.length)}{" "}
+                    Gate)
+                  </h4>
+                </div>
+
+                {/* Import Mode Selector */}
+                <div className="bg-os-bg/50 p-3 rounded-lg border border-os-border/50">
+                  <div className="text-[10px] font-mono text-os-text/60 mb-2 uppercase">
+                    Import Mode:
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setImportMode("merge")}
+                      className={`flex-1 py-2 text-xs font-mono rounded border transition ${
+                        importMode === "merge"
+                          ? "bg-emerald-500/10 border-emerald-500 text-emerald-400"
+                          : "border-os-border text-os-text/60 hover:bg-os-border/20"
+                      }`}
+                    >
+                      ➕ اضافه (Merge)
+                    </button>
+                    <button
+                      onClick={() => setImportMode("replace")}
+                      className={`flex-1 py-2 text-xs font-mono rounded border transition ${
+                        importMode === "replace"
+                          ? "bg-red-500/10 border-red-500 text-red-400"
+                          : "border-os-border text-os-text/60 hover:bg-os-border/20"
+                      }`}
+                    >
+                      🔄 جایگزین (Replace)
+                    </button>
+                  </div>
+                  {importMode === "replace" && gates.length > 0 && (
+                    <p className="text-[10px] text-red-400 mt-2 font-mono">
+                      ⚠️ {toPersianNumber(gates.length)} Gate فعلی حذف خواهند شد!
+                    </p>
+                  )}
+                </div>
+
+                {/* Preview List */}
+                <div className="space-y-3 max-h-96 overflow-y-auto">
+                  {roadmapPreview.map((gate, idx) => (
+                    <div
+                      key={idx}
+                      className="bg-os-bg/50 rounded-lg border border-os-border/50 p-3"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono text-os-text/40">
+                            #{toPersianNumber(gate.order)}
+                          </span>
+                          <span className="text-xs font-bold text-os-text">
+                            {gate.title}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-mono text-os-accent">
+                          {toPersianNumber(gate.criteria.length)} معیار
+                        </span>
+                      </div>
+                      {gate.description && (
+                        <p className="text-[10px] text-os-text/50 mb-2">
+                          {gate.description}
+                        </p>
+                      )}
+                      {gate.criteria.length > 0 ? (
+                        <ul className="space-y-1 pr-4">
+                          {gate.criteria.slice(0, 3).map((c, ci) => (
+                            <li
+                              key={ci}
+                              className="text-[10px] text-os-text/70 flex items-center gap-2"
+                            >
+                              <span className="text-os-text/30">○</span>
+                              <span>{c.text}</span>
+                            </li>
+                          ))}
+                          {gate.criteria.length > 3 && (
+                            <li className="text-[10px] text-os-text/40 pr-4">
+                              +{toPersianNumber(gate.criteria.length - 3)} مورد
+                              دیگر...
+                            </li>
+                          )}
+                        </ul>
+                      ) : (
+                        <p className="text-[10px] text-amber-400/70 font-mono">
+                          ⚠️ بدون معیار
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {roadmapImportStatus && (
+                  <div
+                    className={`text-xs p-2 rounded font-mono ${
+                      roadmapImportStatus.startsWith("✅")
+                        ? "bg-emerald-500/10 text-emerald-400"
+                        : roadmapImportStatus.startsWith("⚠️")
+                        ? "bg-amber-500/10 text-amber-400"
+                        : "bg-red-500/10 text-red-400"
+                    }`}
+                  >
+                    {roadmapImportStatus}
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleCancelImport}
+                    disabled={roadmapImportLoading}
+                    className="flex-1 py-2 border border-os-border text-os-text/60 font-mono text-xs rounded hover:bg-os-border/20 transition disabled:opacity-50"
+                  >
+                    ← ویرایش JSON
+                  </button>
+                  <button
+                    onClick={handleImportRoadmap}
+                    disabled={roadmapImportLoading}
+                    className="flex-1 py-2 bg-emerald-500 text-white font-mono text-xs rounded disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition"
+                  >
+                    {roadmapImportLoading
+                      ? "..."
+                      : importMode === "replace"
+                      ? "🔄 جایگزین کن"
+                      : "✅ اضافه کن"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Manual Gate Form (preserved) */}
       <div className="bg-os-card border border-os-border p-6 rounded-xl mb-8">
         <h3 className="text-[10px] font-mono text-os-accent mb-4 uppercase tracking-wider">
           [ + ] DEPLOY NEW CAREER GATE
@@ -598,53 +1194,73 @@ export default function RoadmapPage() {
           <textarea
             placeholder="توضیحات دروازه (اختیاری)"
             value={newGate.description}
-            onChange={(e) => setNewGate({ ...newGate, description: e.target.value })}
+            onChange={(e) =>
+              setNewGate({ ...newGate, description: e.target.value })
+            }
             className="w-full h-16 bg-os-bg border border-os-border rounded-lg p-2.5 text-xs md:text-sm text-white focus:outline-none focus:border-os-accent resize-none transition"
           />
           <textarea
             placeholder="محدودیت / فرصت زمانی (اختیاری) — مثلاً: پنجره دسترسی به استاد تا فلان تاریخ"
             value={newGate.constraintNote}
-            onChange={(e) => setNewGate({ ...newGate, constraintNote: e.target.value })}
+            onChange={(e) =>
+              setNewGate({ ...newGate, constraintNote: e.target.value })
+            }
             className="w-full h-16 bg-os-bg border border-os-border rounded-lg p-2.5 text-xs md:text-sm text-white focus:outline-none focus:border-os-accent resize-none transition"
           />
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-[9px] font-mono text-os-text/40 block mb-1">ددلاین (ISO)</label>
+              <label className="text-[9px] font-mono text-os-text/40 block mb-1">
+                ددلاین (ISO)
+              </label>
               <input
                 type="date"
                 value={newGate.deadline}
-                onChange={(e) => setNewGate({ ...newGate, deadline: e.target.value })}
+                onChange={(e) =>
+                  setNewGate({ ...newGate, deadline: e.target.value })
+                }
                 className="w-full bg-os-bg border border-os-border rounded-lg p-2.5 text-xs md:text-sm text-white focus:outline-none focus:border-os-accent transition font-mono"
               />
             </div>
             <div>
-              <label className="text-[9px] font-mono text-os-text/40 block mb-1">یادداشت ددلاین</label>
+              <label className="text-[9px] font-mono text-os-text/40 block mb-1">
+                یادداشت ددلاین
+              </label>
               <input
                 type="text"
                 placeholder="تقریبی — اواخر شهریور"
                 value={newGate.deadlineNote}
-                onChange={(e) => setNewGate({ ...newGate, deadlineNote: e.target.value })}
+                onChange={(e) =>
+                  setNewGate({ ...newGate, deadlineNote: e.target.value })
+                }
                 className="w-full bg-os-bg border border-os-border rounded-lg p-2.5 text-xs md:text-sm text-white focus:outline-none focus:border-os-accent transition"
               />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-[9px] font-mono text-os-text/40 block mb-1">ترتیب (عدد)</label>
+              <label className="text-[9px] font-mono text-os-text/40 block mb-1">
+                ترتیب (عدد)
+              </label>
               <input
                 type="number"
                 value={newGate.order}
-                onChange={(e) => setNewGate({ ...newGate, order: e.target.value })}
+                onChange={(e) =>
+                  setNewGate({ ...newGate, order: e.target.value })
+                }
                 className="w-full bg-os-bg border border-os-border rounded-lg p-2.5 text-xs md:text-sm text-white focus:outline-none focus:border-os-accent transition font-mono"
               />
             </div>
             <div>
-              <label className="text-[9px] font-mono text-os-text/40 block mb-1">وابسته به (IDها با کاما)</label>
+              <label className="text-[9px] font-mono text-os-text/40 block mb-1">
+                وابسته به (IDها با کاما)
+              </label>
               <input
                 type="text"
                 placeholder="gate-001, gate-002"
                 value={newGate.dependsOn}
-                onChange={(e) => setNewGate({ ...newGate, dependsOn: e.target.value })}
+                onChange={(e) =>
+                  setNewGate({ ...newGate, dependsOn: e.target.value })
+                }
                 className="w-full bg-os-bg border border-os-border rounded-lg p-2.5 text-xs md:text-sm text-white focus:outline-none focus:border-os-accent transition font-mono"
               />
             </div>
@@ -652,14 +1268,18 @@ export default function RoadmapPage() {
           <textarea
             placeholder="معیارهای پذیرش (هر خط یک مورد)"
             value={newGate.criteriaText}
-            onChange={(e) => setNewGate({ ...newGate, criteriaText: e.target.value })}
+            onChange={(e) =>
+              setNewGate({ ...newGate, criteriaText: e.target.value })
+            }
             className="w-full h-24 bg-os-bg border border-os-border rounded-lg p-2.5 text-xs md:text-sm text-white focus:outline-none focus:border-os-accent resize-none transition"
           />
           <input
             type="text"
             placeholder="لینک مدرک / Evidence URL (اختیاری)"
             value={newGate.evidenceLink}
-            onChange={(e) => setNewGate({ ...newGate, evidenceLink: e.target.value })}
+            onChange={(e) =>
+              setNewGate({ ...newGate, evidenceLink: e.target.value })
+            }
             className="w-full bg-os-bg border border-os-border rounded-lg p-2.5 text-xs md:text-sm text-white focus:outline-none focus:border-os-accent transition font-mono"
           />
           <button
@@ -671,6 +1291,7 @@ export default function RoadmapPage() {
         </div>
       </div>
 
+      {/* Monthly Review (preserved) */}
       <button
         onClick={handleMonthlyReview}
         className="w-full p-4 rounded-xl font-mono text-xs md:text-sm border border-os-accent/60 text-os-accent bg-os-accent/5 hover:bg-os-accent/10 transition-all flex items-center justify-center gap-3 active:scale-[0.99]"
