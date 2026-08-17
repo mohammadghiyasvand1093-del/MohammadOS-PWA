@@ -44,7 +44,7 @@ export default function RoadmapPage() {
   const [roadmapImportLoading, setRoadmapImportLoading] = useState(false);
   const copyTimeoutRef = useRef(null);
 
-  // === NEW: Inline Edit State (Batch 56) ===
+  // === Inline Edit State (Batch 56) ===
   const [editingGateId, setEditingGateId] = useState(null);
   const [editFormData, setEditFormData] = useState(null);
 
@@ -315,7 +315,106 @@ export default function RoadmapPage() {
     }
   }
 
-  // === NEW: Import Wizard Handlers (Batch 55) ===
+  // === NEW: Roadmap Export Handlers (Batch 57) ===
+  const handleExportRoadmapJSON = () => {
+    if (gates.length === 0) {
+      setError("هیچ Gateی برای خروجی گرفتن وجود ندارد.");
+      return;
+    }
+    setError(null);
+
+    const exportData = {
+      app: "MohammadOS-PWA",
+      exportedAt: new Date().toISOString(),
+      gates: gates.map((g) => ({
+        title: g.title,
+        description: g.description || "",
+        constraintNote: g.constraintNote || "",
+        deadline: g.deadline || null,
+        deadlineNote: g.deadlineNote || "",
+        order: g.order || 0,
+        dependsOn: (g.dependsOn || []).map((depId) => {
+          const depGate = gates.find((gg) => gg.id === depId);
+          return depGate ? depGate.title : depId;
+        }),
+        criteria: (g.criteria || []).map((c) => ({
+          title: c.text,
+        })),
+        evidenceLink: g.evidenceLink || null,
+      })),
+    };
+
+    const jsonStr = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([jsonStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `mohammados-roadmap-${new Date().toISOString().split("T")[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportRoadmapMarkdown = () => {
+    if (gates.length === 0) {
+      setError("هیچ Gateی برای خروجی گرفتن وجود ندارد.");
+      return;
+    }
+    setError(null);
+
+    let md = `# 🗺️ نقشه راه مسیر شغلی MohammadOS\n\n`;
+    md += `**تاریخ تولید:** ${new Date().toLocaleDateString("fa-IR")}\n\n`;
+    md += `---\n\n`;
+
+    gates.forEach((g) => {
+      const doneCount = g.criteria?.filter((c) => c.done).length || 0;
+      const totalCount = g.criteria?.length || 0;
+      const progress = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+
+      md += `## ${g.order ? `#${g.order} ` : ""}${g.title}\n\n`;
+
+      if (g.description) md += `> ${g.description}\n\n`;
+
+      md += `**پیشرفت:** ${progress}% (${doneCount}/${totalCount} معیار)\n\n`;
+
+      if (g.deadline) md += `**⏰ ددلاین:** ${g.deadline} ${g.deadlineNote ? `— ${g.deadlineNote}` : ""}\n\n`;
+      if (g.constraintNote) md += `**⚠️ محدودیت:** ${g.constraintNote}\n\n`;
+      if (g.evidenceLink) md += `**🔗 مدرک:** [لینک](${g.evidenceLink})\n\n`;
+
+      if (g.dependsOn?.length > 0) {
+        const depTitles = g.dependsOn.map((depId) => {
+          const depGate = gates.find((gg) => gg.id === depId);
+          return depGate ? depGate.title : depId;
+        });
+        md += `**وابسته به:** ${depTitles.join(", ")}\n\n`;
+      }
+
+      if (totalCount > 0) {
+        md += `### معیارهای پذیرش:\n\n`;
+        g.criteria.forEach((c) => {
+          const check = c.done ? "[x]" : "[ ]";
+          const assess = c.assessmentResult === "pass" ? "✅" : c.assessmentResult === "fail" ? "❌" : "⏳";
+          md += `- ${check} ${c.text} ${assess}\n`;
+        });
+        md += `\n`;
+      }
+
+      md += `---\n\n`;
+    });
+
+    const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `mohammados-roadmap-${new Date().toISOString().split("T")[0]}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // === Import Wizard Handlers (Batch 55) ===
   const handleCopyRoadmapPrompt = async () => {
     try {
       await navigator.clipboard.writeText(ROADMAP_PROMPT);
@@ -526,8 +625,7 @@ export default function RoadmapPage() {
     setAiGuideStep(1);
   };
 
-  // === NEW: Inline Edit Handlers (Batch 56) ===
-
+  // === Inline Edit Handlers (Batch 56) ===
   const handleStartEdit = (gate) => {
     setEditingGateId(gate.id);
     setEditFormData({
@@ -1124,6 +1222,22 @@ export default function RoadmapPage() {
             </div>
           );
         })}
+      </div>
+
+      {/* === NEW: Export Roadmap UI (Batch 57) === */}
+      <div className="grid grid-cols-2 gap-3 mb-8">
+        <button
+          onClick={handleExportRoadmapJSON}
+          className="py-3 rounded-lg font-mono text-xs border border-sky-500/60 text-sky-400 bg-sky-500/5 hover:bg-sky-500/10 transition flex items-center justify-center gap-2 active:scale-[0.99]"
+        >
+          📥 Export JSON
+        </button>
+        <button
+          onClick={handleExportRoadmapMarkdown}
+          className="py-3 rounded-lg font-mono text-xs border border-emerald-500/60 text-emerald-400 bg-emerald-500/5 hover:bg-emerald-500/10 transition flex items-center justify-center gap-2 active:scale-[0.99]"
+        >
+          📝 Export Markdown
+        </button>
       </div>
 
       {/* === Import Roadmap Wizard (Collapsible) === */}
