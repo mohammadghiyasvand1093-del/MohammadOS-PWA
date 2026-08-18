@@ -6,6 +6,9 @@
  * All data arrives via parameters from caller.
  */
 
+// ✅ FIX 3.9: Added toPersianDate
+import { toPersianDate } from "../utils/date";
+
 /* ──────────── Rule-based insights ──────────── */
 
 const DOMAINS = [
@@ -297,7 +300,8 @@ function buildMonthlyPrompt(monthLogs = [], roadmapStatus) {
     const total = roadmapStatus.totalGates ?? gates.length;
     const gateLines = gates.map(g => {
       let line = `- ${g.title}: ${Math.round(g.progress ?? 0)}%`;
-      if (g.deadline) line += ` (ددلاین: ${g.deadline})`;
+      // ✅ FIX 3.10: Convert AI prompt deadline to Persian
+      if (g.deadline) line += ` (ددلاین: ${toPersianDate(g.deadline)})`;
       if (g.constraintNote) line += ` [محدودیت: ${g.constraintNote}]`;
       return line;
     }).join("\n");

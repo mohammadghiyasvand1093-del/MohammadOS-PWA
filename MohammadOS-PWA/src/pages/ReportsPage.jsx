@@ -6,7 +6,7 @@ import { ImportService } from "../app/ImportService";
 import { AggregationService } from "../service/aggregationService";
 import { exportToJSON, exportToCSV } from "../app/exportData";
 import {
-  getPersianWeekKey, getPersianWeekRange, getLocalDateKey, nowMs, toPersianDate, toPersianNumber,
+  getPersianWeekKey, getPersianWeekRange, getLocalDateKey, nowMs, toPersianDate, toPersianNumber, toPersianWeekRangeLabel,
 } from "../utils/date";
 
 import { WEEKLY_PLANNER_PROMPT, WEEKLY_PLANNER_GUIDE_TEXT } from "../ai/weeklyPlannerPrompt";
@@ -20,7 +20,6 @@ const DOMAINS = [
 const MOOD_LABELS = { 1: "😫 خیلی بد", 2: "😕 بد", 3: "😐 معمولی", 4: "🙂 خوب", 5: "😄 عالی" };
 const HEATMAP_LEVELS = ["bg-os-border/20", "bg-emerald-500/30", "bg-emerald-500/50", "bg-emerald-500/70", "bg-emerald-500"];
 const DOMAIN_COLORS = { learning: "#3B82F6", fitness: "#10B981", discipline: "#F59E0B", work: "#8B5CF6", rest: "#64748B", social: "#EC4899" };
-// ✅ Nazer 3 Fix: Aligned table names for preview logic
 const IMPORT_TABLES = ["dayLogs", "habits", "courses", "gates", "schedules", "activeTimer", "drafts", "lifeWheelScores"];
 
 export default function ReportsPage() {
@@ -70,7 +69,7 @@ export default function ReportsPage() {
         ]);
         if (!mounted) return;
         setVitals(vits); setHeatmapData(hm); setGates(gatesData); setDomainTrend(dt || []); setAnalyticsTrend(aTrend || []); setMoodDist(mDist || []);
-      } catch (err) { console.error("ReportsPage core load error:", err); } 
+      } catch (err) { console.error("ReportsPage core load error:", err); }
       finally { if (mounted) setLoading(false); }
     }
     load();
@@ -81,7 +80,7 @@ export default function ReportsPage() {
     let mounted = true;
     async function loadSchedules() {
       try {
-        const days = ["saturday","sunday","monday","tuesday","wednesday","thursday","friday"];
+        const days = ["saturday", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday"];
         const all = await Promise.all(days.map(d => ScheduleRepository.getDaySchedule(d).catch(() => null)));
         if (mounted) setScheduleBlocks(all.filter(Boolean).flatMap(d => d.schedule || []));
       } catch (err) { console.error("Schedule load error:", err); }
@@ -103,7 +102,6 @@ export default function ReportsPage() {
     return () => { mounted = false; };
   }, [weekOffset]);
 
-  // ✅ FIX: ReportsPage use Persian (Saturday-based) week range
   const weekRange = useMemo(() => {
     const base = new Date(nowMs()); base.setDate(base.getDate() + weekOffset * 7);
     return getPersianWeekRange(getPersianWeekKey(base));
@@ -159,7 +157,7 @@ export default function ReportsPage() {
     const daysMap = { saturday: { name: "شنبه", planned: 0, actual: 0 }, sunday: { name: "یکشنبه", planned: 0, actual: 0 }, monday: { name: "دوشنبه", planned: 0, actual: 0 }, tuesday: { name: "سه‌شنبه", planned: 0, actual: 0 }, wednesday: { name: "چهارشنبه", planned: 0, actual: 0 }, thursday: { name: "پنجشنبه", planned: 0, actual: 0 }, friday: { name: "جمعه", planned: 0, actual: 0 } };
     scheduleBlocks.forEach(item => {
       let dayKey = item.dayOfWeek || item.day;
-      if (typeof dayKey === 'number') dayKey = ["saturday","sunday","monday","tuesday","wednesday","thursday","friday"][dayKey];
+      if (typeof dayKey === 'number') dayKey = ["saturday", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday"][dayKey];
       if (dayKey && daysMap[dayKey]) daysMap[dayKey].planned += Number(item.duration) || 60;
     });
     const jsToPersian = [1, 2, 3, 4, 5, 6, 0]; const daysArr = ["saturday", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday"];
@@ -171,18 +169,13 @@ export default function ReportsPage() {
     return { dataArray, maxMins: Math.max(...dataArray.map(d => Math.max(d.planned, d.actual)), 60) };
   }, [scheduleBlocks, weekLogs]);
 
-  // ✅ UPGRADE: Enhanced pvaDomainSummary to compare Planned Blocks vs Done Tasks per domain
   const pvaDomainSummary = useMemo(() => {
     const summary = {};
-    
-    // 1. Count planned blocks from schedule
     scheduleBlocks.forEach(item => {
       const domain = item.domain || item.type || "general";
       if (!summary[domain]) summary[domain] = { planned: 0, done: 0 };
-      summary[domain].planned += 1; 
+      summary[domain].planned += 1;
     });
-
-    // 2. Count actual done tasks from weekLogs
     weekLogs.forEach(log => {
       if (log.status === "frozen") return;
       (log.entries || []).forEach(entry => {
@@ -192,7 +185,6 @@ export default function ReportsPage() {
         }
       });
     });
-
     return Object.entries(summary)
       .filter(([, v]) => v.planned > 0 || v.done > 0)
       .map(([key, val]) => ({
@@ -408,7 +400,7 @@ export default function ReportsPage() {
         <div id="panel-weekly" role="tabpanel" className="space-y-6">
           <div className="flex items-center justify-between bg-os-card border border-os-border rounded-lg p-3">
             <button onClick={() => setWeekOffset(o => o - 1)} className="px-3 py-1.5 rounded border border-os-border text-xs font-mono hover:border-os-accent">← هفته قبل</button>
-            <span className="text-sm font-bold">{toPersianDate(weekRange.startDate)} تا {toPersianDate(weekRange.endDate)}{weekOffset === 0 && <span className="text-os-accent text-[10px] mr-2">(جاری)</span>}</span>
+            <span className="text-sm font-bold">{toPersianWeekRangeLabel(weekRange.startDate, weekRange.endDate)}{weekOffset === 0 && <span className="text-os-accent text-[10px] mr-2">(جاری)</span>}</span>
             <button onClick={() => setWeekOffset(o => o + 1)} className="px-3 py-1.5 rounded border border-os-border text-xs font-mono hover:border-os-accent">هفته بعد →</button>
           </div>
           <div className="flex justify-end">
@@ -526,7 +518,6 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          {/* ✅ UPGRADE: Render the enhanced pvaDomainSummary visually */}
           {pvaDomainSummary.length > 0 && (
             <div className="bg-os-card border border-os-border rounded-lg p-4">
               <h3 className="text-sm font-mono text-os-accent mb-4 text-left">[ ◈ ] PLAN vs ACTUAL (DOMAIN TASKS)</h3>
@@ -616,71 +607,59 @@ export default function ReportsPage() {
             <div className="bg-os-card border border-os-border rounded-lg p-4">
               <h3 className="text-sm font-mono text-os-accent mb-3 text-left">[ ◈ ] DATA IMPORT</h3>
               <p className="text-xs text-os-text/60 mb-4">فایل خروجی MohammadOS را انتخاب کن. این عمل داده‌های فعلی را بازنویسی می‌کند.</p>
-              <div className="mb-4"><input ref={fileInputRef} type="file" accept=".json,.gz,application/json,application/gzip" onChange={handleFileSelect} className="w-full text-xs text-os-text file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-os-accent/20 file:text-os-accent file:font-mono" />{!importFile && <p className="text-[10px] font-mono text-os-text/40 mt-2">{lastExportDate ? `📦 Last backup: ${lastExportDate}` : "📦 No previous backup found"}</p>}</div>
-              {importStatus && <div className={`mb-4 p-3 rounded-lg border text-xs font-mono ${importStatus.startsWith("✅") ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" : importStatus.startsWith("❌") ? "bg-red-500/10 border-red-500/30 text-red-400" : "bg-amber-500/10 border-amber-500/30 text-amber-400"}`}>{importStatus}</div>}
+              <div className="mb-4"><input ref={fileInputRef} type="file" accept=".json,.gz,application/json,application/gzip" onChange={handleFileSelect} className="w-full text-xs text-os-text file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-os-accent/20 file:text-os-accent file:font-mono" />{!importFile && <p className="text-[10px] font-mono text-os-text/40 mt-2">{lastExportDate ? `📦 Last backup: ${lastExportDate}` : "📦 هنوز بکاپی گرفته نشده"}</p>}</div>
+              {importStatus && <p className="text-[10px] font-mono text-os-text/60 mb-3 text-center">{importStatus}</p>}
               {importPreview && (
-                <div className="mb-4 bg-os-bg border border-os-border rounded-lg p-3">
-                  <h4 className="text-[10px] font-mono text-os-text/60 mb-2 uppercase">PREVIEW</h4>
-                  <div className="space-y-1">{Object.entries(importPreview).map(([table, count]) => <div key={table} className="flex justify-between text-xs font-mono"><span className="text-os-text/70">{table}</span><span className="text-os-accent">{toPersianNumber(count)} records</span></div>)}</div>
-                  <div className="flex gap-3 mt-4"><button onClick={handleImportConfirm} className="flex-1 bg-emerald-500/10 border border-emerald-500 text-emerald-400 py-2 rounded-lg font-mono text-xs hover:bg-emerald-500 hover:text-os-bg">✅ CONFIRM IMPORT</button><button onClick={handleClearImport} className="flex-1 border border-os-border text-os-text/60 py-2 rounded-lg font-mono text-xs hover:bg-os-border/30">CLEAR</button></div>
+                <div className="bg-os-bg border border-os-border rounded-lg p-3 mb-4">
+                  <p className="text-[10px] font-mono text-os-accent mb-2">PREVIEW:</p>
+                  <div className="grid grid-cols-2 gap-1">{Object.entries(importPreview).map(([table, count]) => <div key={table} className="flex justify-between text-[10px] font-mono"><span className="text-os-text/60">{table}</span><span className="text-os-text">{toPersianNumber(count)}</span></div>)}</div>
                 </div>
               )}
+              <div className="flex gap-3">
+                {importPreview && <button onClick={handleImportConfirm} className="flex-1 bg-emerald-500/10 border border-emerald-500 text-emerald-400 py-3 rounded-lg font-mono text-xs hover:bg-emerald-500 hover:text-os-bg">✅ تایید و وارد کن</button>}
+                {importFile && <button onClick={handleClearImport} className="flex-1 bg-red-500/10 border border-red-500 text-red-400 py-3 rounded-lg font-mono text-xs hover:bg-red-500 hover:text-os-bg">❌ لغو</button>}
+              </div>
             </div>
           )}
 
           {importMode === "schedule" && (
             <div className="space-y-4">
-              <div className="flex gap-2">{[1, 2, 3].map(s => <div key={s} className={`flex-1 h-1 rounded-full ${aiGuideStep >= s ? 'bg-os-accent' : 'bg-os-border'}`} />)}</div>
-              {aiGuideStep === 1 && (
-                <div className="bg-os-card border border-os-border rounded-lg p-4 space-y-4">
-                  <div className="flex items-center gap-2 mb-2"><span className="text-lg">🤖</span><h3 className="text-sm font-bold text-os-accent">راهنمای ساخت برنامه با AI</h3></div>
-                  <div className="text-xs text-os-text/70 leading-relaxed whitespace-pre-line bg-os-bg/50 p-4 rounded-lg border border-os-border/50">{WEEKLY_PLANNER_GUIDE_TEXT}</div>
-                  <div className="bg-os-bg/50 p-4 rounded-lg border border-os-border/50 space-y-3">
-                    <div className="flex items-center justify-between"><span className="text-xs font-bold text-os-text">📋 پرامپت مشاور برنامه‌ریز</span><button onClick={handleCopyPrompt} className="text-[10px] font-mono bg-os-accent/10 text-os-accent border border-os-accent/30 px-3 py-1.5 rounded hover:bg-os-accent/20">{scheduleImportStatus.includes("کپی شد") ? "✅ کپی شد!" : "📋 کپی پرامپت"}</button></div>
-                    <div className="max-h-48 overflow-y-auto text-[10px] font-mono text-os-text/50 bg-os-bg p-3 rounded border border-os-border/30 whitespace-pre-wrap">{WEEKLY_PLANNER_PROMPT}</div>
+              <div className="bg-os-card border border-os-border rounded-lg p-4">
+                <h3 className="text-sm font-mono text-os-accent mb-3 text-left">[ ◈ ] AI WEEKLY SCHEDULE IMPORT</h3>
+                <div className="space-y-3">
+                  <div className={`p-3 rounded border ${aiGuideStep === 1 ? "border-os-accent bg-os-accent/5" : "border-os-border/50 bg-os-bg/30"}`}>
+                    <div className="flex items-center gap-2 mb-2"><span className="text-xs font-mono text-os-accent">STEP 1</span></div>
+                    <p className="text-xs text-os-text/70 mb-2">ابتدا پرامپت زیر را کپی کرده و به AI بده:</p>
+                    <div className="bg-os-bg border border-os-border rounded p-3 font-mono text-[10px] text-os-text/60 whitespace-pre-wrap max-h-32 overflow-y-auto mb-2">{WEEKLY_PLANNER_PROMPT.slice(0, 300)}...</div>
+                    <button onClick={handleCopyPrompt} className="w-full py-2 bg-os-accent/10 border border-os-accent text-os-accent rounded text-xs font-mono hover:bg-os-accent hover:text-os-bg">📋 کپی پرامپت</button>
                   </div>
-                  <button onClick={() => setAiGuideStep(2)} className="w-full py-3 bg-os-accent text-os-bg font-mono text-xs rounded-lg hover:opacity-90">مرحله بعد: Paste JSON →</button>
-                </div>
-              )}
-              {aiGuideStep === 2 && (
-                <div className="bg-os-card border border-os-border rounded-lg p-4 space-y-4">
-                  <div className="flex items-center gap-2 mb-2"><span className="text-lg">📥</span><h3 className="text-sm font-bold text-os-accent">Paste JSON برنامهٔ هفتگی</h3></div>
-                  <textarea value={scheduleJsonText} onChange={e => setScheduleJsonText(e.target.value)} placeholder={`[\n  {\n    "dayOfWeek": "saturday",\n    "schedule": [...]\n  }\n]`} className="w-full h-64 bg-os-bg border border-os-border rounded-lg p-3 text-[11px] font-mono focus:outline-none focus:border-os-accent resize-none" dir="ltr" />
-                  
-                  <div className="text-[10px] text-amber-400/80 bg-amber-500/5 border border-amber-500/20 rounded p-2 font-mono">
-                    ⚠️ توجه: این عمل کل برنامه‌OfYear روزهای وارد شده را جایگزین می‌کند (Replace). برنامه‌های دستی قبلی آن روزها حذف خواهند شد.
+                  <div className={`p-3 rounded border ${aiGuideStep === 2 ? "border-os-accent bg-os-accent/5" : "border-os-border/50 bg-os-bg/30"}`}>
+                    <div className="flex items-center gap-2 mb-2"><span className="text-xs font-mono text-os-accent">STEP 2</span></div>
+                    <p className="text-xs text-os-text/70 mb-2">پاسخ JSON AI را اینجا قرار بده:</p>
+                    <textarea value={scheduleJsonText} onChange={e => { setScheduleJsonText(e.target.value); setAiGuideStep(2); }} placeholder="JSON را اینجا paste کنید..." className="w-full h-32 bg-os-bg border border-os-border rounded-lg p-3 text-xs font-mono text-os-text focus:border-os-accent outline-none resize-none" />
+                    <button onClick={handleParseScheduleJson} className="w-full mt-2 py-2 bg-sky-500/10 border border-sky-500 text-sky-400 rounded text-xs font-mono hover:bg-sky-500 hover:text-os-bg">🔍 تجزیه و پیش‌نمایش</button>
                   </div>
-
-                  {scheduleImportStatus && <div className={`text-xs p-2 rounded ${scheduleImportStatus.startsWith("✅") ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>{scheduleImportStatus}</div>}
-                  <div className="flex gap-2"><button onClick={() => setAiGuideStep(1)} className="flex-1 py-2 border border-os-border text-os-text/60 font-mono text-xs rounded">← قبلی</button><button onClick={handleParseScheduleJson} disabled={!scheduleJsonText.trim()} className="flex-1 py-2 bg-os-accent text-os-bg font-mono text-xs rounded disabled:opacity-50">بررسی و Preview →</button></div>
-                </div>
-              )}
-              {aiGuideStep === 3 && schedulePreview && (
-                <div className="bg-os-card border border-os-border rounded-lg p-4 space-y-4">
-                  <div className="flex items-center gap-2 mb-2"><span className="text-lg">👁️</span><h3 className="text-sm font-bold text-os-accent">پیش‌نمایش برنامه</h3></div>
-                  <div className="max-h-64 overflow-y-auto bg-os-bg border border-os-border rounded-lg p-3 space-y-3">
-                    {schedulePreview.map((day, idx) => (
-                      <div key={idx} className="border-b border-os-border/50 pb-2 last:border-0 last:pb-0">
-                        <div className="text-xs font-bold text-os-accent mb-1">{day.dayOfWeek}</div>
-                        <div className="space-y-1">
-                          {(day.schedule || []).map((block, bIdx) => (
-                            <div key={bIdx} className="flex items-center gap-2 text-[11px] text-os-text/70">
-                              <span className="font-mono text-os-text/40">{block.startTime}-{block.endTime}</span>
-                              <span>{block.title}</span>
-                              <span className="text-[9px] text-os-text/40 mr-auto">[{block.type}]</span>
-                            </div>
-                          ))}
-                        </div>
+                  {aiGuideStep === 3 && schedulePreview && (
+                    <div className="p-3 rounded border border-os-accent bg-os-accent/5">
+                      <div className="flex items-center gap-2 mb-2"><span className="text-xs font-mono text-os-accent">STEP 3 — PREVIEW</span></div>
+                      <div className="space-y-1 max-h-48 overflow-y-auto">
+                        {schedulePreview.map((day, idx) => (
+                          <div key={idx} className="bg-os-bg border border-os-border rounded p-2">
+                            <p className="text-xs font-bold">{day.dayOfWeek || day.day || `روز ${idx + 1}`}</p>
+                            <div className="space-y-0.5 mt-1">{(day.blocks || day.schedule || []).map((block, bIdx) => <p key={bIdx} className="text-[10px] font-mono text-os-text/60">{block.startTime || ""} — {block.endTime || ""} | {block.title || block.task || ""}</p>)}</div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                  {scheduleImportStatus && <div className={`text-xs p-2 rounded ${scheduleImportStatus.startsWith("✅") ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>{scheduleImportStatus}</div>}
-                  <div className="flex gap-2">
-                    <button onClick={() => { setAiGuideStep(2); setScheduleImportStatus(""); }} className="flex-1 py-2 border border-os-border text-os-text/60 font-mono text-xs rounded">← قبلی</button>
-                    <button onClick={handleImportSchedule} disabled={scheduleImportLoading} className="flex-1 py-2 bg-emerald-500/10 border border-emerald-500 text-emerald-400 font-mono text-xs rounded hover:bg-emerald-500 hover:text-os-bg disabled:opacity-50">{scheduleImportLoading ? "⏳ در حال وارد کردن..." : "✅ تأیید و وارد کردن"}</button>
-                  </div>
+                      <button onClick={handleImportSchedule} disabled={scheduleImportLoading} className="w-full mt-3 py-2 bg-emerald-500/10 border border-emerald-500 text-emerald-400 rounded text-xs font-mono hover:bg-emerald-500 hover:text-os-bg disabled:opacity-50">{scheduleImportLoading ? "⏳ در حال وارد کردن..." : "✅ تایید و وارد کن"}</button>
+                    </div>
+                  )}
+                  {scheduleImportStatus && <p className="text-[10px] font-mono text-os-text/60 text-center">{scheduleImportStatus}</p>}
                 </div>
-              )}
+              </div>
+              <div className="bg-os-card border border-os-border rounded-lg p-4">
+                <h3 className="text-sm font-mono text-os-accent mb-3 text-left">[ ◈ ] GUIDE</h3>
+                <div className="text-xs text-os-text/60 whitespace-pre-wrap leading-relaxed">{WEEKLY_PLANNER_GUIDE_TEXT}</div>
+              </div>
             </div>
           )}
         </div>

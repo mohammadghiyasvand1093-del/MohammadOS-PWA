@@ -4,8 +4,9 @@ import { db } from "../db/database";
 import { GateRepository } from "../repositories/GateRepository";
 import CoachReportModal from "../components/CoachReportModal";
 import { runMonthlyReview } from "../ai/coachService";
-import { ImportService } from "../app/ImportService"; // ✅ Batch 57: Added Import
-import { toPersianNumber } from "../utils/date";
+import { ImportService } from "../app/ImportService";
+// ✅ FIX 3.7: Added toPersianDate
+import { toPersianNumber, toPersianDate } from "../utils/date";
 import RoadmapStatsPanel from "../components/RoadmapStatsPanel";
 import RoadmapGateCard from "../components/RoadmapGateCard";
 import RoadmapImportWizard from "../components/RoadmapImportWizard";
@@ -18,7 +19,7 @@ export default function RoadmapPage() {
     constraintNote: "", deadline: "", deadlineNote: "", order: 0, dependsOn: "",
   });
   const [error, setError] = useState(null);
-  const [importStatus, setImportStatus] = useState(null); // ✅ Batch 57
+  const [importStatus, setImportStatus] = useState(null);
 
   const [pendingCriteriaKeys, setPendingCriteriaKeys] = useState(() => new Set());
   const pendingCriteriaRef = useRef(new Set());
@@ -30,7 +31,7 @@ export default function RoadmapPage() {
   const [isCoachModalOpen, setIsCoachModalOpen] = useState(false);
 
   const [showImportWizard, setShowImportWizard] = useState(false);
-  const fileInputRef = useRef(null); // ✅ Batch 57
+  const fileInputRef = useRef(null);
 
   const [editingGateId, setEditingGateId] = useState(null);
   const [editFormData, setEditFormData] = useState(null);
@@ -57,7 +58,6 @@ export default function RoadmapPage() {
     }
   }, []);
 
-  // ✅ Batch 57: Direct JSON Import Handler
   const handleImportRoadmap = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -218,7 +218,6 @@ export default function RoadmapPage() {
         monthLogs = allLogs.filter((log) => log.date && log.date.startsWith(monthStr));
       }
       
-      // ✅ Batch 59 Fix: Passing constraintNote and deadline to Coach Service
       const roadmapStatus = {
         totalGates: gates.length,
         completedGates: gates.filter((g) => g.criteria.length > 0 && g.criteria.every((c) => c.done)).length,
@@ -269,7 +268,8 @@ export default function RoadmapPage() {
       md += `## ${g.order ? `#${g.order} ` : ""}${g.title}\n\n`;
       if (g.description) md += `> ${g.description}\n\n`;
       md += `**پیشرفت:** ${progress}% (${doneCount}/${totalCount} معیار)\n\n`;
-      if (g.deadline) md += `**⏰ ددلاین:** ${g.deadline} ${g.deadlineNote ? `— ${g.deadlineNote}` : ""}\n\n`;
+      // ✅ FIX 3.8: Convert export markdown deadline to Persian
+      if (g.deadline) md += `**⏰ ددلاین:** ${toPersianDate(g.deadline)} ${g.deadlineNote ? `— ${g.deadlineNote}` : ""}\n\n`;
       if (g.constraintNote) md += `**⚠️ محدودیت:** ${g.constraintNote}\n\n`;
       if (g.evidenceLink) md += `**🔗 مدرک:** [لینک](${g.evidenceLink})\n\n`;
       if (g.dependsOn?.length > 0) {
@@ -353,7 +353,6 @@ export default function RoadmapPage() {
       const isComplete = total > 0 && done === total;
       if (isComplete) completedGates++;
       else if (done > 0) inProgressGates++;
-      // Fixed Vacuous Truth Bug
       const isLocked = g.dependsOn?.length > 0 && !g.dependsOn.every((depId) => {
         const dep = gates.find((gg) => gg.id === depId);
         return dep && dep.criteria.length > 0 && dep.criteria.every((c) => c.done);
@@ -424,7 +423,6 @@ export default function RoadmapPage() {
       </div>
 
       <div className="grid grid-cols-3 gap-3 mb-8">
-        {/* ✅ Batch 57: Import JSON Button */}
         <input type="file" accept=".json" ref={fileInputRef} onChange={handleImportRoadmap} className="hidden" />
         <button 
           onClick={() => fileInputRef.current?.click()} 

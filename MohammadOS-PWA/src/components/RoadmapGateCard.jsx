@@ -1,5 +1,6 @@
 // src/components/RoadmapGateCard.jsx
-import { toPersianNumber } from "../utils/date";
+// ✅ FIX 3.5: Added toPersianDate
+import { toPersianNumber, toPersianDate } from "../utils/date";
 
 export default function RoadmapGateCard({
   gate,
@@ -76,7 +77,8 @@ export default function RoadmapGateCard({
             {gate.order > 0 && <span className="text-[10px] font-mono text-os-text/30">#{toPersianNumber(gate.order)}</span>}
           </div>
           {gate.description && !isExpanded && <p className="text-[10px] text-os-text/50 mb-1 line-clamp-1">{gate.description}</p>}
-          {hasDeadline && !isExpanded && <p className="text-[10px] font-mono text-amber-400/70 mb-1">⏰ ددلاین: {gate.deadline} {gate.deadlineNote && `— ${gate.deadlineNote}`}</p>}
+          {/* ✅ FIX 3.6: Convert deadline to Persian */}
+          {hasDeadline && !isExpanded && <p className="text-[10px] font-mono text-amber-400/70 mb-1">⏰ ددلاین: {toPersianDate(gate.deadline)} {gate.deadlineNote && `— ${gate.deadlineNote}`}</p>}
           {!isExpanded && (
             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
               <span className="text-[10px] font-mono text-os-text/40">{toPersianNumber(doneCount)}/{toPersianNumber(gate.criteria.length)} CRITERIA</span>

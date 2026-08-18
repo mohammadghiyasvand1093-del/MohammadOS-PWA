@@ -1,5 +1,7 @@
+// src/app/exportData.js
 import { db } from "../db/database";
-import { toPersianDate } from "../utils/date";
+// ✅ FIX 4.3: Added todayKey, toPersianDate
+import { todayKey, toPersianDate } from "../utils/date";
 
 function downloadFile(content, filename, type, addBOM = false) {
   const finalContent = addBOM
@@ -129,7 +131,6 @@ export async function exportToCSV(range) {
       }
 
       entries.forEach((entry) => {
-        // ✅ FIX Bug #6: Entries use plannedStart/plannedEnd, not startTime/endTime
         const duration = calculateDurationMin(entry.plannedStart, entry.plannedEnd);
         const row = [
           escapeCsv(baseRow.date),
@@ -149,7 +150,8 @@ export async function exportToCSV(range) {
     });
 
     const csvContent = rows.join("\n");
-    const filename = `MohammadOS_Logs_${range}d_${new Date().toISOString().split("T")[0]}.csv`;
+    // ✅ FIX 4.1: Shamsi filename for CSV
+    const filename = `MohammadOS_Logs_${range}d_${toPersianDate(todayKey())}.csv`;
     downloadFile(csvContent, filename, "text/csv;charset=utf-8;", true);
     return true;
   } catch (error) {
@@ -203,7 +205,8 @@ export async function exportToJSON(range) {
 
     const jsonContent = JSON.stringify(data, null, 2);
     const compressed = await compressGzip(jsonContent);
-    const filename = `MohammadOS_Backup_${range}d_${new Date().toISOString().split("T")[0]}.json.gz`;
+    // ✅ FIX 4.2: Shamsi filename for JSON
+    const filename = `MohammadOS_Backup_${range}d_${toPersianDate(todayKey())}.json.gz`;
     downloadBlob(compressed, filename);
 
     // Batch 8.6: Save last export timestamp to localStorage
@@ -218,7 +221,7 @@ export async function exportToJSON(range) {
 
 // ═══════════════════════════════════════════
 // بچ ۷۴ — Auto-Backup Helpers
-// ═════════════════════════════════════════
+// ═══════════════════════════════════════════
 export function getDaysSinceLastBackup() {
   const last = localStorage.getItem("mohammados_last_export");
   if (!last) return Infinity;

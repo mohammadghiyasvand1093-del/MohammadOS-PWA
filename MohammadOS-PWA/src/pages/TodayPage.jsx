@@ -6,7 +6,7 @@ import { TimerRepository } from "../repositories/TimerRepository";
 import { HabitRepository } from "../repositories/HabitRepository";
 import { saveHabit } from "../app/saveHabit";
 import { deleteHabit } from "../app/deleteHabit";
-import { todayKey, getTodayEn, nowMs, getDayEnFromDateKey } from "../utils/date";
+import { todayKey, getTodayEn, nowMs, getDayEnFromDateKey, toPersianDate } from "../utils/date"; // ✅ FIX 3.1
 import { AggregationService } from "../service/aggregationService";
 
 function formatMs(ms) {
@@ -380,7 +380,8 @@ export default function TodayPage() {
     const currentLog = dayLogRef.current;
     if (!currentLog) return;
     
-    let report = `📅 گزارش روز: ${currentLog.date}\n\n`;
+    // ✅ FIX 3.2: Convert raw date to Persian
+    let report = `📅 گزارش روز: ${toPersianDate(currentLog.date)}\n\n`;
     
     const moodEntry = MOOD_EMOJIS.find(m => m.value === currentLog.mood);
     if (moodEntry) {
@@ -863,11 +864,13 @@ export default function TodayPage() {
 
       <div className="flex justify-between items-center mb-4">
         <div className="text-right">
+          {/* ✅ FIX 3.3: Convert header date to Persian */}
           <h2 className="text-xl font-bold text-white">
-            {isHistorical ? `داشبورد اجرای ${dayLog.date}` : "داشبورد اجرای امروز"}
+            {isHistorical ? `داشبورد اجرای ${toPersianDate(dayLog.date)}` : "داشبورد اجرای امروز"}
           </h2>
+          {/* ✅ FIX 3.4: Convert sub-header date to Persian */}
           <p className="text-xs font-mono text-os-text/50 mt-1 tracking-widest text-left" dir="ltr">
-            DATE: {dayLog.date} {isHistorical && "● ARCHIVE"}
+            DATE: {toPersianDate(dayLog.date)} {isHistorical && "● ARCHIVE"}
           </p>
         </div>
         <div className={`px-3 py-1 rounded-full text-xs font-mono border ${
@@ -1028,7 +1031,6 @@ export default function TodayPage() {
         )
       )}
 
-      {/* ✅ بچ ۶۸: Search Input */}
       <div className="mb-4">
         <div className="relative">
           <input
