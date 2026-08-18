@@ -42,18 +42,42 @@ export function parseDateKeyLocal(dateKey) {
   return new Date(y, m - 1, d);
 }
 
+/**
+ * Returns the Gregorian week-of-month (1–5) based on day number.
+ *
+ * ⚠️  NOT suitable for Persian-calendar logic.
+ * "Week of month" has no standard definition in the Persian calendar
+ * because each Shamsi month starts on a different Gregorian weekday.
+ *
+ * Kept only for backward compatibility — no active caller in the
+ * codebase depends on this as of v2.0.
+ *
+ * For Persian week identification use getPersianWeekKey() instead.
+ */
 export function getWeekOfMonth(date) {
   return Math.ceil(date.getDate() / 7);
 }
 
+/**
+ * Extracts hierarchy fields from a date string for DB indexing.
+ *
+ * Only returns `year` and `month` (Gregorian) because:
+ *   • database.js exclusively indexes by year & month
+ *   • `week` was removed — "week of month" is ambiguous between
+ *     Gregorian and Persian calendars and no caller reads it
+ *   • `dayOfWeek` was removed — it stored the JS index (0=Sun)
+ *     which contradicts the Persian index (0=Sat) used everywhere
+ *     else in the system (TodayPage, SchedulePage, aggregationService)
+ *
+ * If you need the Persian day-of-week index, call getDayOfWeekFromDateKey().
+ * If you need a week identifier, call getPersianWeekKey().
+ */
 export function getHierarchyFields(dateStr) {
   const d = parseDateKeyLocal(dateStr);
 
   return {
     year: d.getFullYear(),
     month: d.getMonth() + 1,
-    week: getWeekOfMonth(d),
-    dayOfWeek: d.getDay(),
   };
 }
 
