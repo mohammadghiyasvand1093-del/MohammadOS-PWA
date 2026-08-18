@@ -215,3 +215,35 @@ export function toPersianNumber(input) {
   const persianDigits = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
   return String(input).replace(/[0-9]/g, (d) => persianDigits[d]);
 }
+
+// ✅ Shamsi display helpers — used for UI labels, not for DB storage.
+// DB always stores YYYY-MM-DD (Gregorian). These only convert for display.
+
+/** Short Shamsi date: "۰۵/۲۸" (month/day) */
+export function toPersianDateShort(dateKey) {
+  if (!dateKey) return "";
+  const d = parseDateKeyLocal(dateKey);
+  const parts = new Intl.DateTimeFormat("fa-IR-u-ca-persian", {
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const month = parts.find(p => p.type === "month")?.value || "";
+  const day = parts.find(p => p.type === "day")?.value || "";
+  return `${month}/${day}`;
+}
+
+/** Shamsi week range label: "۱۴۰۵/۰۵/۲۳ — ۱۴۰۵/۰۵/۲۹" */
+export function toPersianWeekRangeLabel(startKey, endKey) {
+  const s = startKey ? toPersianDate(startKey) : "";
+  const e = endKey ? toPersianDate(endKey) : "";
+  return s && e ? `${s} — ${e}` : s || e || "";
+}
+
+/** Shamsi month label: "مهر ۱۴۰۵" */
+export function toPersianMonthLabel(year, month) {
+  const d = new Date(year, month - 1, 15);
+  return new Intl.DateTimeFormat("fa-IR-u-ca-persian", {
+    year: "numeric",
+    month: "long",
+  }).format(d);
+}

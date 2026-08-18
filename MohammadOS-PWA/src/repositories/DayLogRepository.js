@@ -96,7 +96,7 @@ function isHabitActiveOnDate(habit, dateStr) {
   const dayOfWeek = getDayOfWeekFromDateKey(targetDate);
 
   if (habit.recurrence.type === "daily") {
-    return dayOfWeek !== 5; // Friday = off-day
+    return dayOfWeek !== 6; // ✅ FIX Bug #4 regression: Friday = 6 in Persian index
   }
 
   if (habit.recurrence.type === "weekly") {

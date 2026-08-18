@@ -109,7 +109,6 @@ export function calculateLifeWheelScores({
   dayLogs = [],
   manualScores = {},
 } = {}) {
-  // Reserved for future product rules that connect learning/career scoring.
   void habits;
   void courses;
 

@@ -1,4 +1,5 @@
 import { db } from "../db/database";
+import { toPersianDate } from "../utils/date";
 
 function downloadFile(content, filename, type, addBOM = false) {
   const finalContent = addBOM
@@ -100,7 +101,7 @@ export async function exportToCSV(range) {
 
     logs.forEach((log) => {
       const baseRow = {
-        date: log.date || "",
+        date: toPersianDate(log.date),
         mood: log.mood ?? "",
         note: log.moodNote || log.journalNote || "",
       };
@@ -111,6 +112,7 @@ export async function exportToCSV(range) {
         rows.push(
           [
             escapeCsv(baseRow.date),
+            escapeCsv(""),
             escapeCsv(""),
             escapeCsv(""),
             escapeCsv(""),
@@ -216,7 +218,7 @@ export async function exportToJSON(range) {
 
 // ═══════════════════════════════════════════
 // بچ ۷۴ — Auto-Backup Helpers
-// ═══════════════════════════════════════════
+// ═════════════════════════════════════════
 export function getDaysSinceLastBackup() {
   const last = localStorage.getItem("mohammados_last_export");
   if (!last) return Infinity;

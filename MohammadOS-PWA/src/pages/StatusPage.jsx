@@ -5,7 +5,7 @@ import { CourseRepository } from "../repositories/CourseRepository";
 import { AggregationService } from "../service/aggregationService";
 import { getInsights } from "../ai/coachService";
 import { recalibrateAllHabits } from "../app/recalibrateHabits";
-import { getISOWeekKey, getLocalDateKey, nowMs, toPersianDate, toPersianNumber } from "../utils/date";
+import { getPersianWeekKey, getLocalDateKey, nowMs, toPersianDate, toPersianNumber, toPersianDateShort } from "../utils/date";
 
 const GRACE_MONTHLY_LIMIT = 2;
 
@@ -45,7 +45,7 @@ export default function StatusPage() {
   const toastTimeoutRef = useRef(null);
 
   const todayKey = useMemo(() => getLocalDateKey(new Date(nowMs())), []);
-  const currentPeriodKey = useMemo(() => getISOWeekKey(new Date(nowMs())), []);
+  const currentPeriodKey = useMemo(() => getPersianWeekKey(new Date(nowMs())), []);
 
   const showToast = useCallback((message) => {
     setToastMessage(message);
@@ -143,7 +143,6 @@ export default function StatusPage() {
     }
   }, [vitals, weeklyDayLogs]);
 
-  // ✅ Fix: Combined initial load and visibility change
   const refreshAll = useCallback(async () => {
     try {
       await Promise.all([
@@ -337,7 +336,7 @@ export default function StatusPage() {
                     style={{ height: `${(log.mood / 5) * 100}%` }}
                   />
                   <span className="text-[9px] font-mono text-muted/60">
-                    {toPersianNumber(log.date.slice(5))}
+                    {toPersianDateShort(log.date)}
                   </span>
                 </div>
               ))}
