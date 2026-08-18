@@ -97,7 +97,17 @@ export default function RoadmapStatsPanel({ stats }) {
         </span>
         <span className={`text-2xl font-bold font-mono ${stats.lockedGates > 0 ? "text-slate-400" : "text-os-text/40"}`}>
           {toPersianNumber(stats.lockedGates)}
-        </span>
+        </span>ROLE: نگهبان Git/GitHub + طراح پروژه رزومه‌ای (Git-Keeper).
+
+ورودی من: کدی که از Python-Polish یا SQL-Coach با برچسب "✅ آماده Git" اومده (من داخل VSCode می‌نویسمش).
+
+STEP 1 — بررسی نهایی: ساختار فایل/پوشه مناسب ریپو + پیام commit استاندارد (Conventional Commits: feat/fix/refactor)
+STEP 2 — بر اساس سطح فعلی من (از فایل profile_all.md)، یک پروژه کوچک واقعی طراحی کن که همین مفهوم رو کاربردی نشون بده و برای رزومه ارزش داشته باشه
+STEP 3 — وقتی پروژه رو کامل کردم: README حرفه‌ای بنویس (توضیح پروژه، تکنولوژی‌ها، نحوه اجرا) + یک جمله برای بخش «پروژه‌ها»ی رزومه
+
+RULES:
+- فقط کد با برچسب "✅ آماده Git" رو بپذیر؛ کد خام یا تست‌نشده رو رد کن
+- هر پروژه باید مستقل و قابل نمایش در GitHub باشه، نه فقط تمرین کلاسی
       </div>
     </div>
   );

@@ -4,6 +4,7 @@ import { db } from "../db/database";
 import { GateRepository } from "../repositories/GateRepository";
 import CoachReportModal from "../components/CoachReportModal";
 import { runMonthlyReview } from "../ai/coachService";
+import { ImportService } from "../app/ImportService"; // ✅ Batch 57: Added Import
 import { toPersianNumber } from "../utils/date";
 import RoadmapStatsPanel from "../components/RoadmapStatsPanel";
 import RoadmapGateCard from "../components/RoadmapGateCard";
@@ -17,6 +18,7 @@ export default function RoadmapPage() {
     constraintNote: "", deadline: "", deadlineNote: "", order: 0, dependsOn: "",
   });
   const [error, setError] = useState(null);
+  const [importStatus, setImportStatus] = useState(null); // ✅ Batch 57
 
   const [pendingCriteriaKeys, setPendingCriteriaKeys] = useState(() => new Set());
   const pendingCriteriaRef = useRef(new Set());
@@ -28,6 +30,7 @@ export default function RoadmapPage() {
   const [isCoachModalOpen, setIsCoachModalOpen] = useState(false);
 
   const [showImportWizard, setShowImportWizard] = useState(false);
+  const fileInputRef = useRef(null); // ✅ Batch 57
 
   const [editingGateId, setEditingGateId] = useState(null);
   const [editFormData, setEditFormData] = useState(null);
@@ -53,6 +56,27 @@ export default function RoadmapPage() {
       console.error("Error reloading gates:", err);
     }
   }, []);
+
+  // ✅ Batch 57: Direct JSON Import Handler
+  const handleImportRoadmap = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    setImportStatus("در حال پردازش فایل...");
+    setError(null);
+    try {
+      const text = await file.text();
+      const result = await ImportService.importRoadmapFromJSON(text, true);
+      setImportStatus(`✅ ${result.importedGates} دروازه با موفقیت ایمپورت شد.`);
+      await reloadGates();
+    } catch (err) {
+      console.error("Roadmap Import Error:", err);
+      setError("خطا در ایمپورت نقشه راه: " + err.message);
+      setImportStatus(null);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
   const handleAddGate = async () => {
     if (!newGate.title.trim()) return;
@@ -193,12 +217,16 @@ export default function RoadmapPage() {
         const allLogs = await db.dayLogs.toArray();
         monthLogs = allLogs.filter((log) => log.date && log.date.startsWith(monthStr));
       }
+      
+      // ✅ Batch 59 Fix: Passing constraintNote and deadline to Coach Service
       const roadmapStatus = {
         totalGates: gates.length,
         completedGates: gates.filter((g) => g.criteria.length > 0 && g.criteria.every((c) => c.done)).length,
         gates: gates.map((g) => ({
           title: g.title,
           progress: g.criteria.length > 0 ? (g.criteria.filter((c) => c.done).length / g.criteria.length) * 100 : 0,
+          deadline: g.deadline || null,
+          constraintNote: g.constraintNote || "",
         })),
       };
       const result = await runMonthlyReview(monthLogs, roadmapStatus);
@@ -356,6 +384,9 @@ export default function RoadmapPage() {
       {error && (
         <div className="mb-4 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-300">{error}</div>
       )}
+      {importStatus && (
+        <div className="mb-4 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs text-emerald-300">{importStatus}</div>
+      )}
 
       <RoadmapStatsPanel stats={roadmapStats} />
 
@@ -392,9 +423,17 @@ export default function RoadmapPage() {
         ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 mb-8">
-        <button onClick={handleExportRoadmapJSON} className="py-3 rounded-lg font-mono text-xs border border-sky-500/60 text-sky-400 bg-sky-500/5 hover:bg-sky-500/10 transition flex items-center justify-center gap-2 active:scale-[0.99]">📥 Export JSON</button>
-        <button onClick={handleExportRoadmapMarkdown} className="py-3 rounded-lg font-mono text-xs border border-emerald-500/60 text-emerald-400 bg-emerald-500/5 hover:bg-emerald-500/10 transition flex items-center justify-center gap-2 active:scale-[0.99]">📝 Export Markdown</button>
+      <div className="grid grid-cols-3 gap-3 mb-8">
+        {/* ✅ Batch 57: Import JSON Button */}
+        <input type="file" accept=".json" ref={fileInputRef} onChange={handleImportRoadmap} className="hidden" />
+        <button 
+          onClick={() => fileInputRef.current?.click()} 
+          className="py-3 rounded-lg font-mono text-xs border border-amber-500/60 text-amber-400 bg-amber-500/5 hover:bg-amber-500/10 transition flex items-center justify-center gap-2 active:scale-[0.99]"
+        >
+          📥 Import JSON
+        </button>
+        <button onClick={handleExportRoadmapJSON} className="py-3 rounded-lg font-mono text-xs border border-sky-500/60 text-sky-400 bg-sky-500/5 hover:bg-sky-500/10 transition flex items-center justify-center gap-2 active:scale-[0.99]">📤 Export JSON</button>
+        <button onClick={handleExportRoadmapMarkdown} className="py-3 rounded-lg font-mono text-xs border border-emerald-500/60 text-emerald-400 bg-emerald-500/5 hover:bg-emerald-500/10 transition flex items-center justify-center gap-2 active:scale-[0.99]">📝 Export MD</button>
       </div>
 
       <RoadmapImportWizard

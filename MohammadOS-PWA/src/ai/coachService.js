@@ -6,7 +6,7 @@
  * All data arrives via parameters from caller.
  */
 
-/* ──────────── Rule-based insights (aligned to StatusPage schema) ──────────── */
+/* ──────────── Rule-based insights ──────────── */
 
 const DOMAINS = [
   { key: "learning",   label: "یادگیری",      icon: "📚" },
@@ -169,7 +169,7 @@ export function getInsights(vitals, weeklyStats, domainTrend, todayLog) {
   return buildRuleBasedInsights(vitals, weeklyStats, domainTrend, todayLog);
 }
 
-/* ──────────── AvalAI core caller (M1.1: Secured via Proxy) ──────────── */
+/* ──────────── AvalAI core caller ──────────── */
 
 async function callAvalAI(messages, maxTokens = 600) {
   const controller = new AbortController();
@@ -262,14 +262,18 @@ function buildMonthlyPrompt(monthLogs = [], roadmapStatus) {
     ? (logs.reduce((s, d) => s + (d.mood || 0), 0) / logs.length).toFixed(1)
     : "-";
 
+  // ✅ Batch 59 Fix: Include constraintNote and deadline in AI context
   let roadmap = "نامشخص";
-  if (Array.isArray(roadmapStatus) && roadmapStatus.length > 0) {
-    roadmap = roadmapStatus.map(r => `- ${r.title}: ${r.status}`).join("\n");
-  } else if (roadmapStatus && typeof roadmapStatus === "object" && !Array.isArray(roadmapStatus)) {
+  if (roadmapStatus && typeof roadmapStatus === "object" && !Array.isArray(roadmapStatus)) {
     const gates = roadmapStatus.gates || [];
     const completed = roadmapStatus.completedGates ?? 0;
     const total = roadmapStatus.totalGates ?? gates.length;
-    const gateLines = gates.map(g => `- ${g.title}: ${Math.round(g.progress ?? 0)}%`).join("\n");
+    const gateLines = gates.map(g => {
+      let line = `- ${g.title}: ${Math.round(g.progress ?? 0)}%`;
+      if (g.deadline) line += ` (ددلاین: ${g.deadline})`;
+      if (g.constraintNote) line += ` [محدودیت: ${g.constraintNote}]`;
+      return line;
+    }).join("\n");
     roadmap = `تکمیل‌شده: ${completed}/${total} دروازه\n${gateLines || "بدون دروازه"}`;
   }
 
@@ -281,10 +285,10 @@ function buildMonthlyPrompt(monthLogs = [], roadmapStatus) {
 - روزهای Full: ${fullDays} از ${logs.length}
 - میانگین Mood: ${avgMood}
 
-Roadmap:
+Roadmap و محدودیت‌ها:
  ${roadmap}
 
-ارزیابی کلی، یک الگوی قابل مشاهده، و یک اولویت برای ماه آینده.` },
+ارزیابی کلی، یک الگوی قابل مشاهده، و یک اولویت برای ماه آینده. لطفاً محدودیت‌های زمانی (Deadline/Constraint) را در پیشنهاد خود لحاظ کن.` },
   ];
 }
 

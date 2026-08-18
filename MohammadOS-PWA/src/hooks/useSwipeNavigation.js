@@ -59,9 +59,12 @@ export function useSwipeNavigation(mainRef, location, navigate) {
     const handleTouchEnd = (e) => {
       if (!isSwipable) return;
       if (window.innerWidth >= 768) return;
-      if (Date.now() - lastNavTime.current < NAV_LOCK_MS) return;
 
+      // 🟢 Batch 56 Fix: Always reset transform BEFORE checking the lock
       resetTransform();
+
+      // If inside the 300ms lock window, stop here. Transform is already cleared.
+      if (Date.now() - lastNavTime.current < NAV_LOCK_MS) return;
       
       const deltaX = e.changedTouches[0].screenX - touchStartX;
       const deltaY = e.changedTouches[0].screenY - touchStartY;

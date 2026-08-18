@@ -91,26 +91,32 @@ export const ImportService = {
 };
 
 // ═══════════════════════════════════════════
-// Weekly Schedule Import from AI
+// Weekly Schedule Import from AI (Batch 58 & 60)
 // ═══════════════════════════════════════════
 const VALID_DAYS = ["saturday", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday"];
-// ✅ Nazer 3 Fix: Aligned with internal app types
-const VALID_TYPES = ["course", "fixed", "habit", "break", "event"];
-// ✅ Nazer 3 Fix: Aligned with internal English domain keys
+// ✅ Batch 60 Fix: Added 'flexible' type support
+const VALID_TYPES = ["course", "fixed", "habit", "break", "event", "flexible"];
 const VALID_DOMAINS = ["learning", "fitness", "discipline", "work", "rest", "social"];
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
+function timeToMinutes(t) {
+  if (!t || !TIME_REGEX.test(t)) return 0;
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+}
+
 function validateScheduleJson(json) {
   const errors = [];
+  const warnings = []; // ✅ Batch 58: Warnings instead of errors for overlap/limits
   
   if (!Array.isArray(json)) {
-    return { valid: false, errors: ["JSON باید یک آرایه باشد"] };
+    return { valid: false, errors: ["JSON باید یک آرایه باشد"], warnings: [] };
   }
   if (json.length === 0) {
-    return { valid: false, errors: ["آرایه خالی است"] };
+    return { valid: false, errors: ["آرایه خالی است"], warnings: [] };
   }
   if (json.length > 7) {
-    return { valid: false, errors: ["حداکثر ۷ روز مجاز است"] };
+    return { valid: false, errors: ["حداکثر ۷ روز مجاز است"], warnings: [] };
   }
   
   json.forEach((day, dayIdx) => {
@@ -123,7 +129,11 @@ function validateScheduleJson(json) {
       return;
     }
     
-    day.schedule.forEach((block, blockIdx) => {
+    let totalMinutes = 0;
+    // ✅ Batch 58: Overlap detection logic
+    const sortedBlocks = [...day.schedule].sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+    
+    sortedBlocks.forEach((block, blockIdx) => {
       const prefix = `${day.dayOfWeek || "?"} → بلوک ${blockIdx + 1}`;
       
       if (!block.title || typeof block.title !== "string" || block.title.length > 50) {
@@ -138,11 +148,21 @@ function validateScheduleJson(json) {
         errors.push(`${prefix}: endTime نامعتبر (${block.endTime || "?"})`);
       }
       
-      if (block.startTime && block.endTime) {
-        const [sh, sm] = block.startTime.split(":").map(Number);
-        const [eh, em] = block.endTime.split(":").map(Number);
-        if (sh * 60 + sm >= eh * 60 + em) {
-          errors.push(`${prefix}: startTime باید قبل از endTime باشد`);
+      const startMin = timeToMinutes(block.startTime);
+      const endMin = timeToMinutes(block.endTime);
+      
+      if (startMin < endMin) {
+        totalMinutes += (endMin - startMin);
+      } else if (block.startTime && block.endTime) {
+        errors.push(`${prefix}: startTime باید قبل از endTime باشد`);
+      }
+      
+      // ✅ Batch 58: Check overlap with previous block
+      if (blockIdx > 0) {
+        const prevBlock = sortedBlocks[blockIdx - 1];
+        const prevEndMin = timeToMinutes(prevBlock.endTime);
+        if (startMin < prevEndMin) {
+          warnings.push(`⚠️ ${prefix}: هم‌پوشانی زمانی با بلوک قبلی (${prevBlock.title})`);
         }
       }
       
@@ -154,9 +174,14 @@ function validateScheduleJson(json) {
         errors.push(`${prefix}: domain نامعتبر (${block.domain || "?"}) — باید یکی از: ${VALID_DOMAINS.join(", ")}`);
       }
     });
+    
+    // ✅ Batch 58: Max 19 hours per day check (1140 minutes)
+    if (totalMinutes > 1140) {
+      warnings.push(`⚠️ روز ${day.dayOfWeek}: مجموع زمان بلوک‌ها بیش از ۱۹ ساعت (${Math.round(totalMinutes / 60)} ساعت) است.`);
+    }
   });
   
-  return { valid: errors.length === 0, errors };
+  return { valid: errors.length === 0, errors, warnings };
 }
 
 export async function importWeeklySchedule(jsonText) {
@@ -172,7 +197,6 @@ export async function importWeeklySchedule(jsonText) {
     throw new Error("خطای اعتبارسنجی:\n" + validation.errors.join("\n"));
   }
   
-  // ✅ Nazer 3 Fix: Use ScheduleRepository to prevent duplicate records and ID conflicts
   for (const day of parsed) {
     const scheduleData = day.schedule.map(b => ({
       title: b.title,
@@ -183,9 +207,92 @@ export async function importWeeklySchedule(jsonText) {
       isCritical: Boolean(b.isCritical),
       note: b.note || "",
     }));
-    
     await ScheduleRepository.saveDaySchedule(day.dayOfWeek, scheduleData);
   }
   
-  return { importedDays: parsed.length, totalBlocks: parsed.reduce((s, d) => s + d.schedule.length, 0) };
+  // ✅ Batch 61: Log to importHistory
+  await db.importHistory.add({
+    id: crypto.randomUUID(),
+    type: "weekly_schedule",
+    importedAt: new Date().toISOString(),
+    warnings: validation.warnings
+  });
+  
+  return { 
+    importedDays: parsed.length, 
+    totalBlocks: parsed.reduce((s, d) => s + d.schedule.length, 0),
+    warnings: validation.warnings 
+  };
+}
+
+// ═══════════════════════════════════════════
+// Roadmap Import from JSON (Batch 57)
+// ═══════════════════════════════════════════
+export async function importRoadmapFromJSON(jsonText, replaceExisting = false) {
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch (e) {
+    throw new Error("JSON نامعتبر: " + e.message, { cause: e });
+  }
+
+  if (!parsed || !Array.isArray(parsed.gates)) {
+    throw new Error("فرمت Roadmap نامعتبر است (باید شامل آرایه gates باشد).");
+  }
+
+  const titleToIdMap = new Map();
+  const importedGates = [];
+
+  // First pass: Generate IDs for all gates to resolve dependencies
+  for (const gateData of parsed.gates) {
+    const newId = crypto.randomUUID();
+    titleToIdMap.set(gateData.title, newId);
+  }
+
+  // Second pass: Build full gate objects
+  for (const gateData of parsed.gates) {
+    const dependsOnIds = (gateData.dependsOn || []).map(title => titleToIdMap.get(title)).filter(Boolean);
+    
+    const criteria = (gateData.criteria || []).map(c => {
+      const text = typeof c === 'string' ? c : c.title;
+      return {
+        id: crypto.randomUUID(),
+        text,
+        done: false,
+        assessmentResult: "pending"
+      };
+    });
+
+    const gate = {
+      id: titleToIdMap.get(gateData.title),
+      title: gateData.title,
+      description: gateData.description || "",
+      constraintNote: gateData.constraintNote || "",
+      deadline: gateData.deadline || null,
+      deadlineNote: gateData.deadlineNote || "",
+      order: Number(gateData.order) || 0,
+      dependsOn: dependsOnIds,
+      criteria: criteria,
+      evidenceLink: gateData.evidenceLink || null,
+      linkedRefIds: [],
+      progress: 0
+    };
+    importedGates.push(gate);
+  }
+
+  await db.transaction("rw", db.gates, db.importHistory, async () => {
+    if (replaceExisting) {
+      await db.gates.clear();
+    }
+    await db.gates.bulkPut(importedGates);
+    
+    await db.importHistory.add({
+      id: crypto.randomUUID(),
+      type: "roadmap",
+      importedAt: new Date().toISOString(),
+      count: importedGates.length
+    });
+  });
+
+  return { importedGates: importedGates.length };
 }
