@@ -17,8 +17,35 @@ const DOMAINS = [
   { key: "social",     label: "اجتماعی",      icon: "🤝" },
 ];
 
-function buildRuleBasedInsights(vitals = {}, weeklyStats = {}, domainTrend = [], todayLog = null) {
+// 🟢 Batch 59 Fix: Added roadmapStatus parameter for local UI insights
+function buildRuleBasedInsights(vitals = {}, weeklyStats = {}, domainTrend = [], todayLog = null, roadmapStatus = null) {
   const insights = [];
+
+  // 🟢 Batch 59: Check Roadmap Constraints Locally
+  if (roadmapStatus && Array.isArray(roadmapStatus.gates)) {
+    const todayStr = new Date().toISOString().split("T")[0];
+    const overdueGates = roadmapStatus.gates.filter(g => g.deadline && g.deadline < todayStr && g.progress < 100);
+    if (overdueGates.length > 0) {
+      insights.push({
+        severity: "alert",
+        title: "ددلاین نقشه راه گذشته",
+        message: `${overdueGates.length} دروازه نقشه راه از ددلاین عبور کرده است.`,
+        icon: "⏰",
+        action: "باید زمان‌بندی رو بازنگری کنی و وابستگی‌ها رو چک کنی."
+      });
+    }
+
+    const constrainedGates = roadmapStatus.gates.filter(g => g.constraintNote && g.progress < 100);
+    if (constrainedGates.length > 0) {
+      insights.push({
+        severity: "warning",
+        title: "محدودیت‌های فعال در نقشه راه",
+        message: `${constrainedGates.length} دروازه دارای محدودیت زمانی/مکانی فعال است.`,
+        icon: "⚠️",
+        action: "محدودیت‌های نقشه راه را در برنامه‌ریزی هفتگی لحاظ کن."
+      });
+    }
+  }
 
   if (vitals.streak === 0 && vitals.monthRate < 50) {
     insights.push({
@@ -165,8 +192,9 @@ function buildRuleBasedInsights(vitals = {}, weeklyStats = {}, domainTrend = [],
   return insights;
 }
 
-export function getInsights(vitals, weeklyStats, domainTrend, todayLog) {
-  return buildRuleBasedInsights(vitals, weeklyStats, domainTrend, todayLog);
+// 🟢 Batch 59 Fix: getInsights now accepts roadmapStatus
+export function getInsights(vitals, weeklyStats, domainTrend, todayLog, roadmapStatus) {
+  return buildRuleBasedInsights(vitals, weeklyStats, domainTrend, todayLog, roadmapStatus);
 }
 
 /* ──────────── AvalAI core caller ──────────── */
@@ -262,7 +290,6 @@ function buildMonthlyPrompt(monthLogs = [], roadmapStatus) {
     ? (logs.reduce((s, d) => s + (d.mood || 0), 0) / logs.length).toFixed(1)
     : "-";
 
-  // ✅ Batch 59 Fix: Include constraintNote and deadline in AI context
   let roadmap = "نامشخص";
   if (roadmapStatus && typeof roadmapStatus === "object" && !Array.isArray(roadmapStatus)) {
     const gates = roadmapStatus.gates || [];

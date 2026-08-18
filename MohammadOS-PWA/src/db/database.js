@@ -487,3 +487,21 @@ db.version(18).stores({
 });
 
 export default db;
+/* =========================
+ * v19 (Batch 58 & 61 Setup)
+ * Added importHistory table to track JSON imports
+ * ========================= */
+db.version(19).stores({
+  habits: "id, date, habitId, domain, lastEmaDate, strengthBeforeToday",
+  courses: "id, name, instructor",
+  courseSessions: "id, courseId, date, episodeNumber, status, [courseId+status]",
+  fixedEvents: "id, dayOfWeek, title, startTime, endTime",
+  schedules: "id, dayOfWeek",
+  dayLogs: "date, fullDay, year, month, week, dayOfWeek, status, [year+month], [year+month+status]",
+  activeTimer: "id, taskRefId, isRunning",
+  gates: "id, title, order",
+  drafts: "key",
+  lifeWheelScores: "id, periodKey, startDate, endDate, year, month, week, [year+month]",
+  // 🟢 جدول جدید برای لاگ‌های Import
+  importHistory: "id, type, importedAt"
+});

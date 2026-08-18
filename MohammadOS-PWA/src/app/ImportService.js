@@ -130,11 +130,12 @@ function validateScheduleJson(json) {
     }
     
     let totalMinutes = 0;
-    // ✅ Batch 58: Overlap detection logic
     const sortedBlocks = [...day.schedule].sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
     
-    sortedBlocks.forEach((block, blockIdx) => {
-      const prefix = `${day.dayOfWeek || "?"} → بلوک ${blockIdx + 1}`;
+    for (let i = 0; i < sortedBlocks.length; i++) {
+      const block = sortedBlocks[i];
+      // 🟢 Fix 4: Use block title instead of confusing sorted index
+      const prefix = `${day.dayOfWeek || "?"} → بلوک "${block.title || "?"}"`;
       
       if (!block.title || typeof block.title !== "string" || block.title.length > 50) {
         errors.push(`${prefix}: title نامعتبر`);
@@ -158,11 +159,11 @@ function validateScheduleJson(json) {
       }
       
       // ✅ Batch 58: Check overlap with previous block
-      if (blockIdx > 0) {
-        const prevBlock = sortedBlocks[blockIdx - 1];
+      if (i > 0) {
+        const prevBlock = sortedBlocks[i - 1];
         const prevEndMin = timeToMinutes(prevBlock.endTime);
         if (startMin < prevEndMin) {
-          warnings.push(`⚠️ ${prefix}: هم‌پوشانی زمانی با بلوک قبلی (${prevBlock.title})`);
+          warnings.push(`⚠️ ${day.dayOfWeek}: هم‌پوشانی زمانی بین "${block.title}" و "${prevBlock.title}"`);
         }
       }
       
@@ -173,11 +174,11 @@ function validateScheduleJson(json) {
       if (!block.domain || !VALID_DOMAINS.includes(block.domain)) {
         errors.push(`${prefix}: domain نامعتبر (${block.domain || "?"}) — باید یکی از: ${VALID_DOMAINS.join(", ")}`);
       }
-    });
+    }
     
-    // ✅ Batch 58: Max 19 hours per day check (1140 minutes)
+    // 🟢 Fix 5: Using Math.ceil instead of Math.round
     if (totalMinutes > 1140) {
-      warnings.push(`⚠️ روز ${day.dayOfWeek}: مجموع زمان بلوک‌ها بیش از ۱۹ ساعت (${Math.round(totalMinutes / 60)} ساعت) است.`);
+      warnings.push(`⚠️ روز ${day.dayOfWeek}: مجموع زمان بلوک‌ها بیش از ۱۹ ساعت (حدود ${Math.ceil(totalMinutes / 60)} ساعت) است.`);
     }
   });
   
