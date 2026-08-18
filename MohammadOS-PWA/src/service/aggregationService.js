@@ -7,7 +7,12 @@ import { db } from "../db/database";
 import { DayLogRepository, buildEntriesFromSchedule } from "../repositories/DayLogRepository";
 import { ScheduleRepository } from "../repositories/ScheduleRepository";
 import { TimerRepository } from "../repositories/TimerRepository";
-import { getLocalDateKey, nowMs } from "../utils/date";
+import { 
+  getLocalDateKey, 
+  nowMs, 
+  toPersianDateShort, 
+  toPersianWeekRangeLabel 
+} from "../utils/date";
 
 const DOMAINS = [
   { key: "learning", label: "یادگیری" },
@@ -195,10 +200,11 @@ export const AggregationService = {
       .filter((l) => l.date <= todayKey && l.mood != null)
       .sort((a, b) => a.date.localeCompare(b.date));
 
+    // ✅ FIX 2.1: تبدیل لیبل میلادی به شمسی کوتاه
     const moodTrend = validMoodLogs.map((l) => ({
       date: l.date,
       mood: l.mood,
-      label: l.date.slice(5),
+      label: toPersianDateShort(l.date),
     }));
 
     let bestDay = null;
@@ -363,10 +369,11 @@ export const AggregationService = {
         domains[d.key] = stat.total > 0 ? Math.round((stat.done / stat.total) * 100) : 0;
       });
 
+      // ✅ FIX 2.2: تبدیل لیبل بازه هفته به فرمت شمسی
       result.push({
         weekStart: startStr,
         weekEnd: endStr,
-        weekLabel: `${startStr.slice(5)} ~ ${endStr.slice(5)}`,
+        weekLabel: toPersianWeekRangeLabel(startStr, endStr),
         domains,
       });
     }
@@ -419,8 +426,9 @@ export const AggregationService = {
       const activeDaysCount = activeLogs.length;
       const consistency = activeDaysCount > 0 ? Math.round((fullDays / activeDaysCount) * 100) : 0;
 
+      // ✅ FIX 2.3: تبدیل لیبل محور نمودار به فرمت شمسی کوتاه
       result.push({
-        weekLabel: startStr.slice(5),
+        weekLabel: toPersianDateShort(startStr),
         fullDays,
         activeDays: activeDaysCount,
         consistency,
