@@ -24,12 +24,15 @@ async function write(level, message, stack = null, source = "Unknown", context =
     createdAt: new Date().toISOString(),
   };
 
-  // ذخیره در Dexie (fire-and-forget)
-  db.logs.add(logEntry).catch((err) => {
-    if (ENABLE_CONSOLE) {
-      console.error("Failed to write log:", err);
-    }
-  });
+  // Persistent logs are optional. Older local databases may not have the
+  // logs table after the cleanup migration, so logging must never break UX.
+  if (db.logs) {
+    db.logs.add(logEntry).catch((err) => {
+      if (ENABLE_CONSOLE) {
+        console.error("Failed to write log:", err);
+      }
+    });
+  }
 
   if (!ENABLE_CONSOLE) return;
 

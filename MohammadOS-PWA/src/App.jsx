@@ -392,49 +392,9 @@ function AppLayout() {
 }
 
 export default function App() {
-  const [theme, setTheme] = useState(() => {
-    const saved = localStorage.getItem("mohammados_theme") || "system";
-    const root = document.documentElement;
-    if (saved === "system") {
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      root.setAttribute("data-theme", prefersDark ? "dark" : "light");
-    } else {
-      root.setAttribute("data-theme", saved);
-    }
-    return saved;
-  });
-
   useEffect(() => {
-    const root = document.documentElement;
-    const apply = () => {
-      if (theme === "system") {
-        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-        root.setAttribute("data-theme", prefersDark ? "dark" : "light");
-      } else {
-        root.setAttribute("data-theme", theme);
-      }
-    };
-    apply();
-    localStorage.setItem("mohammados_theme", theme);
-
-    if (theme === "system") {
-      const mq = window.matchMedia("(prefers-color-scheme: dark)");
-      const handler = (e) => root.setAttribute("data-theme", e.matches ? "dark" : "light");
-      mq.addEventListener("change", handler);
-      return () => mq.removeEventListener("change", handler);
-    }
-  }, [theme]);
-
-  useEffect(() => {
-    const onStorage = (e) => { if (e.key === "mohammados_theme" && e.newValue) setTheme(e.newValue); };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
-
-  useEffect(() => {
-    const onThemeChange = (e) => setTheme(e.detail);
-    window.addEventListener("mohammados-theme-change", onThemeChange);
-    return () => window.removeEventListener("mohammados-theme-change", onThemeChange);
+    document.documentElement.setAttribute("data-theme", "dark");
+    document.documentElement.style.colorScheme = "dark";
   }, []);
 
   return (

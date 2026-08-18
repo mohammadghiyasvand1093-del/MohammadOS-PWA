@@ -486,7 +486,6 @@ db.version(18).stores({
     "id, periodKey, startDate, endDate, year, month, week, [year+month]",
 });
 
-export default db;
 /* =========================
  * v19 (Batch 58 & 61 Setup)
  * Added importHistory table to track JSON imports
@@ -505,3 +504,26 @@ db.version(19).stores({
   // 🟢 جدول جدید برای لاگ‌های Import
   importHistory: "id, type, importedAt"
 });
+
+/* =========================
+ * v20 — future sync contract
+ * Keep an append-only event stream and a retryable queue available for the
+ * future account/sync phase. No network sync is enabled in the personal build.
+ * ========================= */
+db.version(20).stores({
+  habits: "id, date, habitId, domain, lastEmaDate, strengthBeforeToday",
+  courses: "id, name, instructor",
+  courseSessions: "id, courseId, date, episodeNumber, status, [courseId+status]",
+  fixedEvents: "id, dayOfWeek, title, startTime, endTime",
+  schedules: "id, dayOfWeek",
+  dayLogs: "date, fullDay, year, month, week, dayOfWeek, status, [year+month], [year+month+status]",
+  activeTimer: "id, taskRefId, isRunning",
+  gates: "id, title, order",
+  drafts: "key",
+  lifeWheelScores: "id, periodKey, startDate, endDate, year, month, week, [year+month]",
+  importHistory: "id, type, importedAt",
+  events: "id, type, aggregate, aggregateId, createdAt",
+  sync_queue: "id, eventId, status, createdAt, retryAt",
+});
+
+export default db;

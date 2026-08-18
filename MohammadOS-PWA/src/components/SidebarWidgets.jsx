@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { AggregationService } from "../service/aggregationService";
 import { nowMs } from "../utils/date";
@@ -25,66 +25,6 @@ function formatDuration(ms) {
   const min = m % 60;
   if (h > 0) return `${h} ساعت و ${min} دقیقه`;
   return `${min} دقیقه`;
-}
-
-// ═══════════════════════════════════════════
-// بچ ۶۶ — Theme Toggle (Segmented Control)
-// ۳ حالت: Dark / Light / System
-// ═══════════════════════════════════════════
-function ThemeToggle() {
-  const [current, setCurrent] = useState(() => {
-    return localStorage.getItem("mohammados_theme") || "system";
-  });
-
-  const setMode = useCallback((mode) => {
-    setCurrent(mode);
-    localStorage.setItem("mohammados_theme", mode);
-    // ارسال CustomEvent به App.jsx برای sync
-    window.dispatchEvent(new CustomEvent("mohammados-theme-change", { detail: mode }));
-  }, []);
-
-  // Cross-tab sync
-  useEffect(() => {
-    const onStorage = (e) => {
-      if (e.key === "mohammados_theme" && e.newValue) {
-        setCurrent(e.newValue);
-      }
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
-
-  const options = [
-    { id: "dark",   icon: "🌙", label: "تاریک" },
-    { id: "light",  icon: "☀️", label: "روشن" },
-    { id: "system", icon: "🖥️", label: "سیستم" },
-  ];
-
-  return (
-    <div className="flex items-center gap-1 p-1 rounded-lg bg-os-bg/60 border border-os-border/40" role="radiogroup" aria-label="انتخاب تم">
-      {options.map((opt) => {
-        const isActive = current === opt.id;
-        return (
-          <button
-            key={opt.id}
-            onClick={() => setMode(opt.id)}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[10px] font-bold transition-all duration-200 border ${
-              isActive
-                ? "bg-os-accent/15 text-os-accent border-os-accent/30 shadow-[0_0_8px_color-mix(in_srgb,var(--color-os-accent)_15%,transparent)]"
-                : "text-os-text/40 hover:text-os-text/70 border-transparent hover:bg-os-border/20"
-            }`}
-            title={opt.label}
-            aria-label={`تم: ${opt.label}`}
-            aria-pressed={isActive}
-            role="radio"
-          >
-            <span className="text-xs" aria-hidden="true">{opt.icon}</span>
-            <span>{opt.label}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
 }
 
 export default function SidebarWidgets() {
@@ -186,11 +126,6 @@ export default function SidebarWidgets() {
   return (
     <div className="mb-4 space-y-2" role="complementary" aria-label="ویجت‌های وضعیت">
       
-      {/* ═══════════════════════════════════════════
-          بچ ۶۶ — Theme Toggle (Segmented Control)
-          ═══════════════════════════════════════════ */}
-      <ThemeToggle />
-
       {/* ✅ Batch 60: رویدادهای نزدیک (Nearby Events Banner) */}
       {nearby && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-2 mb-4">

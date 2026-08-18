@@ -44,6 +44,25 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
+  :focus-visible {
+    outline: 3px solid var(--color-os-accent);
+    outline-offset: 3px;
+  }
+
+  button,
+  a,
+  input,
+  textarea,
+  select {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html {
+    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior-y: contain;
+  }
+
   body {
     margin: 0;
     display: flex;
@@ -184,8 +203,12 @@ html {
 }
 
 button, a {
-  -webkit-tap-highlight-color: transparent;
   touch-action: manipulation; /* بهبود سرعت تاچ و حذف تاخیر ۳۰۰ms در موبایل */
+}
+
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
 }
 
 @media (max-width: 768px) {
