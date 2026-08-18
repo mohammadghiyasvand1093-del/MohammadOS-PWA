@@ -6,7 +6,7 @@ import { ImportService } from "../app/ImportService";
 import { AggregationService } from "../service/aggregationService";
 import { exportToJSON, exportToCSV } from "../app/exportData";
 import {
-  getISOWeekKey, getISOWeekRange, getLocalDateKey, nowMs, toPersianDate, toPersianNumber,
+  getPersianWeekKey, getPersianWeekRange, getLocalDateKey, nowMs, toPersianDate, toPersianNumber,
 } from "../utils/date";
 
 import { WEEKLY_PLANNER_PROMPT, WEEKLY_PLANNER_GUIDE_TEXT } from "../ai/weeklyPlannerPrompt";
@@ -103,9 +103,10 @@ export default function ReportsPage() {
     return () => { mounted = false; };
   }, [weekOffset]);
 
+  // ✅ FIX: ReportsPage use Persian (Saturday-based) week range
   const weekRange = useMemo(() => {
     const base = new Date(nowMs()); base.setDate(base.getDate() + weekOffset * 7);
-    return getISOWeekRange(getISOWeekKey(base));
+    return getPersianWeekRange(getPersianWeekKey(base));
   }, [weekOffset]);
 
   const monthMeta = useMemo(() => {
@@ -170,15 +171,39 @@ export default function ReportsPage() {
     return { dataArray, maxMins: Math.max(...dataArray.map(d => Math.max(d.planned, d.actual)), 60) };
   }, [scheduleBlocks, weekLogs]);
 
+  // ✅ UPGRADE: Enhanced pvaDomainSummary to compare Planned Blocks vs Done Tasks per domain
   const pvaDomainSummary = useMemo(() => {
     const summary = {};
+    
+    // 1. Count planned blocks from schedule
     scheduleBlocks.forEach(item => {
-      const domain = item.domain || item.type || "Misc";
-      if (!summary[domain]) summary[domain] = { planned: 0, actual: 0 };
-      summary[domain].planned += Number(item.duration) || 60;
+      const domain = item.domain || item.type || "general";
+      if (!summary[domain]) summary[domain] = { planned: 0, done: 0 };
+      summary[domain].planned += 1; 
     });
-    return Object.entries(summary);
-  }, [scheduleBlocks]);
+
+    // 2. Count actual done tasks from weekLogs
+    weekLogs.forEach(log => {
+      if (log.status === "frozen") return;
+      (log.entries || []).forEach(entry => {
+        if (entry.domain && entry.done) {
+          if (!summary[entry.domain]) summary[entry.domain] = { planned: 0, done: 0 };
+          summary[entry.domain].done += 1;
+        }
+      });
+    });
+
+    return Object.entries(summary)
+      .filter(([, v]) => v.planned > 0 || v.done > 0)
+      .map(([key, val]) => ({
+        key,
+        ...val,
+        color: DOMAIN_COLORS[key] || "#64748B",
+        icon: DOMAINS.find(d => d.key === key)?.icon || "📌",
+        label: DOMAINS.find(d => d.key === key)?.label || key
+      }))
+      .sort((a, b) => b.planned - a.planned);
+  }, [scheduleBlocks, weekLogs]);
 
   const generateAdvisorMarkdown = useCallback(() => {
     const { startDate, endDate } = weekRange;
@@ -355,7 +380,6 @@ export default function ReportsPage() {
 
   if (loading) return <div className="flex items-center justify-center h-full min-h-[300px]" role="status"><div className="flex flex-col items-center gap-3"><div className="w-8 h-8 border-2 border-os-border border-t-os-accent rounded-full animate-spin" /><span className="text-[10px] font-mono text-os-text/40 uppercase">Loading Report Data...</span></div></div>;
 
-  // ✅ Nazer 3 Fix: Reordered tabs (pva moved to position 4)
   const tabs = [
     { id: "weekly", label: "📅 هفتگی" },
     { id: "monthly", label: "📊 ماهانه" },
@@ -474,6 +498,69 @@ export default function ReportsPage() {
         </div>
       )}
 
+      {activeTab === "pva" && (
+        <div id="panel-pva" role="tabpanel" className="space-y-6">
+          <div className="bg-os-card border border-os-border rounded-lg p-4">
+            <h3 className="text-sm font-mono text-os-accent mb-4 text-left">[ ◈ ] PLAN vs ACTUAL (DAILY MINUTES)</h3>
+            <div className="space-y-3">
+              {pvaData.dataArray.map((day, i) => {
+                const plannedPct = Math.min((day.planned / pvaData.maxMins) * 100, 100);
+                const actualPct = Math.min((day.actual / pvaData.maxMins) * 100, 100);
+                return (
+                  <div key={i} className="space-y-1">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="font-bold">{day.name}</span>
+                      <span className="font-mono text-os-text/50">{toPersianNumber(day.actual)} / {toPersianNumber(day.planned)} دقیقه</span>
+                    </div>
+                    <div className="relative h-3 bg-os-border rounded-full overflow-hidden">
+                      <div className="absolute top-0 left-0 h-full bg-sky-500/30 rounded-full" style={{ width: `${plannedPct}%` }} />
+                      <div className="absolute top-0 left-0 h-full bg-emerald-400 rounded-full" style={{ width: `${actualPct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex items-center justify-center gap-6 mt-4 text-[10px] font-mono text-os-text/50">
+              <div className="flex items-center gap-2"><div className="w-3 h-3 bg-sky-500/30 rounded-sm"></div>برنامه‌ریزی شده</div>
+              <div className="flex items-center gap-2"><div className="w-3 h-3 bg-emerald-400 rounded-sm"></div>انجام شده</div>
+            </div>
+          </div>
+
+          {/* ✅ UPGRADE: Render the enhanced pvaDomainSummary visually */}
+          {pvaDomainSummary.length > 0 && (
+            <div className="bg-os-card border border-os-border rounded-lg p-4">
+              <h3 className="text-sm font-mono text-os-accent mb-4 text-left">[ ◈ ] PLAN vs ACTUAL (DOMAIN TASKS)</h3>
+              <div className="space-y-3">
+                {pvaDomainSummary.map(domain => {
+                  const maxVal = Math.max(domain.planned, domain.done, 1);
+                  return (
+                    <div key={domain.key} className="space-y-1">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-bold flex items-center gap-2">
+                          <span>{domain.icon}</span>
+                          <span>{domain.label}</span>
+                        </span>
+                        <span className="font-mono text-os-text/50">
+                          {toPersianNumber(domain.done)} انجام / {toPersianNumber(domain.planned)} برنامه‌ریزی
+                        </span>
+                      </div>
+                      <div className="relative h-2.5 bg-os-border rounded-full overflow-hidden">
+                        <div className="absolute top-0 left-0 h-full rounded-full opacity-40" style={{ width: `${(domain.planned / maxVal) * 100}%`, backgroundColor: domain.color }} />
+                        <div className="absolute top-0 left-0 h-full rounded-full" style={{ width: `${(domain.done / maxVal) * 100}%`, backgroundColor: domain.color }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex items-center justify-center gap-6 mt-4 text-[10px] font-mono text-os-text/50">
+                <div className="flex items-center gap-2"><div className="w-3 h-3 bg-os-accent/40 rounded-sm"></div>تسک‌های برنامه‌ریزی شده</div>
+                <div className="flex items-center gap-2"><div className="w-3 h-3 bg-os-accent rounded-sm"></div>تسک‌های انجام شده</div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {activeTab === "roadmap" && (
         <div id="panel-roadmap" role="tabpanel" className="space-y-6">
           <div className="bg-os-card border border-os-border rounded-lg p-4">
@@ -560,9 +647,8 @@ export default function ReportsPage() {
                   <div className="flex items-center gap-2 mb-2"><span className="text-lg">📥</span><h3 className="text-sm font-bold text-os-accent">Paste JSON برنامهٔ هفتگی</h3></div>
                   <textarea value={scheduleJsonText} onChange={e => setScheduleJsonText(e.target.value)} placeholder={`[\n  {\n    "dayOfWeek": "saturday",\n    "schedule": [...]\n  }\n]`} className="w-full h-64 bg-os-bg border border-os-border rounded-lg p-3 text-[11px] font-mono focus:outline-none focus:border-os-accent resize-none" dir="ltr" />
                   
-                  {/* ✅ Batch 53 Fix: Replace Warning */}
                   <div className="text-[10px] text-amber-400/80 bg-amber-500/5 border border-amber-500/20 rounded p-2 font-mono">
-                    ⚠️ توجه: این عمل کل برنامه‌ٔ روزهای وارد شده را جایگزین می‌کند (Replace). برنامه‌های دستی قبلی آن روزها حذف خواهند شد.
+                    ⚠️ توجه: این عمل کل برنامه‌OfYear روزهای وارد شده را جایگزین می‌کند (Replace). برنامه‌های دستی قبلی آن روزها حذف خواهند شد.
                   </div>
 
                   {scheduleImportStatus && <div className={`text-xs p-2 rounded ${scheduleImportStatus.startsWith("✅") ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>{scheduleImportStatus}</div>}
@@ -571,46 +657,32 @@ export default function ReportsPage() {
               )}
               {aiGuideStep === 3 && schedulePreview && (
                 <div className="bg-os-card border border-os-border rounded-lg p-4 space-y-4">
-                  <div className="flex items-center gap-2 mb-2"><span className="text-lg">👁️</span><h3 className="text-sm font-bold text-os-accent">پیش‌نمایش برنامهٔ هفتگی</h3></div>
-                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                  <div className="flex items-center gap-2 mb-2"><span className="text-lg">👁️</span><h3 className="text-sm font-bold text-os-accent">پیش‌نمایش برنامه</h3></div>
+                  <div className="max-h-64 overflow-y-auto bg-os-bg border border-os-border rounded-lg p-3 space-y-3">
                     {schedulePreview.map((day, idx) => (
-                      <div key={idx} className="bg-os-bg/50 rounded-lg border border-os-border/50 p-3">
-                        <div className="text-xs font-bold text-os-accent mb-2 capitalize">{day.dayOfWeek} ({day.schedule.length} بلوک)</div>
-                        <div className="space-y-1.5">
-                          {day.schedule.map((b, bidx) => (
-                            <div key={bidx} className="flex items-center gap-2 text-[11px]"><span className="font-mono text-os-text/40 w-20 shrink-0">{b.startTime}-{b.endTime}</span><span className="flex-1 text-os-text truncate">{b.title}</span><span className={`px-1.5 py-0.5 rounded text-[9px] font-mono ${b.type === 'course' ? 'bg-sky-500/10 text-sky-400' : b.type === 'fixed' ? 'bg-red-500/10 text-red-400' : b.type === 'habit' ? 'bg-emerald-500/10 text-emerald-400' : b.type === 'break' ? 'bg-slate-500/10 text-slate-400' : 'bg-purple-500/10 text-purple-400'}`}>{b.type}</span><span className="text-os-text/30 text-[9px]">{b.domain}</span></div>
+                      <div key={idx} className="border-b border-os-border/50 pb-2 last:border-0 last:pb-0">
+                        <div className="text-xs font-bold text-os-accent mb-1">{day.dayOfWeek}</div>
+                        <div className="space-y-1">
+                          {(day.schedule || []).map((block, bIdx) => (
+                            <div key={bIdx} className="flex items-center gap-2 text-[11px] text-os-text/70">
+                              <span className="font-mono text-os-text/40">{block.startTime}-{block.endTime}</span>
+                              <span>{block.title}</span>
+                              <span className="text-[9px] text-os-text/40 mr-auto">[{block.type}]</span>
+                            </div>
                           ))}
                         </div>
                       </div>
                     ))}
                   </div>
                   {scheduleImportStatus && <div className={`text-xs p-2 rounded ${scheduleImportStatus.startsWith("✅") ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>{scheduleImportStatus}</div>}
-                  <div className="flex gap-2"><button onClick={() => setAiGuideStep(2)} className="flex-1 py-2 border border-os-border text-os-text/60 font-mono text-xs rounded">← ویرایش JSON</button><button onClick={handleImportSchedule} disabled={scheduleImportLoading} className="flex-1 py-2 bg-emerald-500 text-white font-mono text-xs rounded disabled:opacity-50">{scheduleImportLoading ? "..." : "✅ Import برنامه"}</button></div>
+                  <div className="flex gap-2">
+                    <button onClick={() => { setAiGuideStep(2); setScheduleImportStatus(""); }} className="flex-1 py-2 border border-os-border text-os-text/60 font-mono text-xs rounded">← قبلی</button>
+                    <button onClick={handleImportSchedule} disabled={scheduleImportLoading} className="flex-1 py-2 bg-emerald-500/10 border border-emerald-500 text-emerald-400 font-mono text-xs rounded hover:bg-emerald-500 hover:text-os-bg disabled:opacity-50">{scheduleImportLoading ? "⏳ در حال وارد کردن..." : "✅ تأیید و وارد کردن"}</button>
+                  </div>
                 </div>
               )}
             </div>
           )}
-        </div>
-      )}
-
-      {activeTab === "pva" && (
-        <div id="panel-pva" role="tabpanel" className="space-y-6">
-          <section className="bg-os-card border border-os-border rounded-lg p-4">
-            <h3 className="text-sm font-mono text-os-accent mb-3 text-left">[ ◈ ] PLANNED VS ACTUAL (MINUTES)</h3>
-            <div className="flex items-end justify-between gap-2 h-40 px-2 mb-4">
-              {pvaData.dataArray.map((day, idx) => {
-                const pH = (day.planned / pvaData.maxMins) * 100, aH = (day.actual / pvaData.maxMins) * 100;
-                return <div key={idx} className="flex flex-col items-center gap-2 flex-1 h-full justify-end"><div className="flex items-end gap-1 w-full justify-center h-full"><div className="w-3 border border-os-accent/40 bg-os-accent/5 rounded-t" style={{ height: `${pH}%` }} title={`Planned: ${day.planned}m`}></div><div className="w-3 bg-os-accent rounded-t" style={{ height: `${aH}%` }} title={`Actual: ${day.actual}m`}></div></div><span className="text-[9px] font-mono text-os-text/60">{day.name}</span></div>;
-              })}
-            </div>
-            <div className="flex justify-center gap-6 mb-6"><div className="flex items-center gap-2"><div className="w-3 h-3 border border-os-accent/40 bg-os-accent/5 rounded"></div><span className="text-[10px] font-mono text-os-text/60">Planned</span></div><div className="flex items-center gap-2"><div className="w-3 h-3 bg-os-accent rounded"></div><span className="text-[10px] font-mono text-os-text/60">Actual</span></div></div>
-            <div className="mt-6 pt-4 border-t border-os-border/50">
-              <h4 className="text-xs font-mono text-os-text/60 uppercase mb-3">Domain Planned Summary</h4>
-              <div className="grid grid-cols-2 gap-3">
-                {pvaDomainSummary.length === 0 ? <p className="text-[10px] text-os-text/50 col-span-2">NO SCHEDULED DOMAINS</p> : pvaDomainSummary.map(([domain, data]) => <div key={domain} className="bg-os-bg/50 p-3 rounded border border-os-border/30"><div className="flex justify-between items-center mb-1"><span className="text-[10px] font-bold text-os-text">{domain}</span><span className={`w-2 h-2 rounded-full ${DOMAIN_COLORS[domain] || "bg-os-accent"}`}></span></div><div className="text-xs font-mono text-os-accent">{toPersianNumber(Math.round(data.planned / 60))}h {toPersianNumber(data.planned % 60)}m</div></div>)}
-              </div>
-            </div>
-          </section>
         </div>
       )}
     </div>
