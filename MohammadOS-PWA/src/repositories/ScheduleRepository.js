@@ -45,20 +45,32 @@ export const ScheduleRepository = {
     return await db.schedules.where("dayOfWeek").equals(dayOfWeek).first();
   },
 
-  // ✅ FIX: Merge and deduplicate all records for a specific date
+  // ✅ FIX Bug #5: Merge date-specific and weekly template schedules
   async getScheduleForDate(dateStr, dayOfWeekFallback) {
     if (!dateStr || typeof dateStr !== 'string') {
       throw new Error('Invalid dateStr');
     }
-    // 1. Date-specific schedule (imported study plans)
+
+    const merged = [];
+    const seen = new Set();
+
+    // 1. Date-specific schedule (imported study plans, one-off events)
     const dateSchedules = await db.schedules.where("dayOfWeek").equals(dateStr).toArray();
-    if (dateSchedules.length > 0) {
-      // Merge all schedules for this date and deduplicate
-      const merged = [];
-      const seen = new Set();
-      
-      for (const rec of dateSchedules) {
-        for (const block of rec.schedule || []) {
+    for (const rec of dateSchedules) {
+      for (const block of rec.schedule || []) {
+        const sig = `${block.title}|${block.startTime}|${block.endTime}`;
+        if (!seen.has(sig)) {
+          seen.add(sig);
+          merged.push(block);
+        }
+      }
+    }
+
+    // 2. Weekly template — always merge (never discard)
+    if (dayOfWeekFallback) {
+      const weeklyRec = await this.getDaySchedule(dayOfWeekFallback);
+      if (weeklyRec) {
+        for (const block of weeklyRec.schedule || []) {
           const sig = `${block.title}|${block.startTime}|${block.endTime}`;
           if (!seen.has(sig)) {
             seen.add(sig);
@@ -66,15 +78,18 @@ export const ScheduleRepository = {
           }
         }
       }
-      
-      return { dayOfWeek: dateStr, schedule: merged };
     }
-    
-    // 2. Fall back to weekly template
-    if (dayOfWeekFallback) {
-      return await this.getDaySchedule(dayOfWeekFallback);
-    }
-    return null;
+
+    if (merged.length === 0) return null;
+
+    // Sort by startTime so blocks appear in chronological order
+    merged.sort((a, b) => {
+      const ta = (a.startTime || '99:99').split(':').map(Number);
+      const tb = (b.startTime || '99:99').split(':').map(Number);
+      return (ta[0] * 60 + ta[1]) - (tb[0] * 60 + tb[1]);
+    });
+
+    return { dayOfWeek: dateStr, schedule: merged };
   },
 
   async getAllSchedules() {

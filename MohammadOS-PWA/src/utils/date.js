@@ -59,7 +59,11 @@ export function getHierarchyFields(dateStr) {
 
 export function getDayOfWeekFromDateKey(dateKey) {
   const d = parseDateKeyLocal(dateKey);
-  return d ? d.getDay() : null;
+  if (!d) return null;
+  // ✅ FIX Bug #4: Return Persian-calendar day index (Saturday=0 … Friday=6)
+  // so it matches the daysOfWeek UI in TodayPage (id 0=شنبه, id 6=جمعه).
+  const jsDay = d.getDay(); // 0=Sun, 6=Sat
+  return (jsDay + 1) % 7;   // 0=Sat, 1=Sun, … 6=Fri
 }
 
 export function todayKey() {
@@ -88,6 +92,72 @@ export function getISOWeekKey(date = new Date()) {
   const weekNo = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
 
   return `${d.getFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+}
+
+// ✅ FIX Bug #3: Persian-calendar week (Saturday-based)
+// Aligns with SchedulePage, PlannerPage, and aggregationService.
+export function getPersianWeekKey(date = new Date()) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const jsDay = d.getDay(); // 0=Sun … 6=Sat
+  const daysSinceSat = (jsDay + 1) % 7;
+
+  const saturday = new Date(d);
+  saturday.setDate(d.getDate() - daysSinceSat);
+
+  const jan1 = new Date(saturday.getFullYear(), 0, 1);
+  const jan1Day = jan1.getDay();
+  const daysFromJan1ToFirstSat = (6 - jan1Day + 7) % 7 || 7;
+  const firstSaturday = new Date(saturday.getFullYear(), 0, 1 + daysFromJan1ToFirstSat);
+
+  let weekNo;
+  if (saturday < firstSaturday) {
+    // Belongs to last week of previous year
+    const prevFirstSat = new Date(saturday.getFullYear() - 1, 0, 1);
+    const prevJan1Day = prevFirstSat.getDay();
+    const prevDaysFromJan1ToFirstSat = (6 - prevJan1Day + 7) % 7 || 7;
+    const prevYearFirstSat = new Date(saturday.getFullYear() - 1, 0, 1 + prevDaysFromJan1ToFirstSat);
+    const diffDays = Math.floor((saturday - prevYearFirstSat) / 86400000);
+    weekNo = Math.floor(diffDays / 7) + 1;
+    return `${saturday.getFullYear() - 1}-W${String(weekNo).padStart(2, "0")}`;
+  }
+
+  const diffDays = Math.floor((saturday - firstSaturday) / 86400000);
+  weekNo = Math.floor(diffDays / 7) + 1;
+
+  return `${saturday.getFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+}
+
+// ✅ FIX Bug #3: Persian-calendar week range (Saturday → Friday)
+export function getPersianWeekRange(periodKey) {
+  const [yearStr, weekStr] = String(periodKey || "").split("-W");
+  const year = Number(yearStr);
+  const week = Number(weekStr);
+
+  if (!Number.isFinite(year) || !Number.isFinite(week)) {
+    const fallbackDate = new Date();
+    const fallbackKey = getPersianWeekKey(fallbackDate);
+    return getPersianWeekRange(fallbackKey);
+  }
+
+  // Find the first Saturday of the year
+  const jan1 = new Date(year, 0, 1);
+  const jan1Day = jan1.getDay();
+  const daysFromJan1ToFirstSat = (6 - jan1Day + 7) % 7 || 7;
+  const firstSaturday = new Date(year, 0, 1 + daysFromJan1ToFirstSat);
+
+  const targetSaturday = new Date(firstSaturday);
+  targetSaturday.setDate(firstSaturday.getDate() + (week - 1) * 7);
+
+  const friday = new Date(targetSaturday);
+  friday.setDate(targetSaturday.getDate() + 6);
+
+  return {
+    startDate: getLocalDateKey(targetSaturday),
+    endDate: getLocalDateKey(friday),
+    year: targetSaturday.getFullYear(),
+    month: targetSaturday.getMonth() + 1,
+    week,
+  };
 }
 
 export function getISOWeekRange(periodKey) {

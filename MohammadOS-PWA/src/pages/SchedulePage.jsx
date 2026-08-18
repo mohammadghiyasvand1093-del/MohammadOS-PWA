@@ -72,7 +72,9 @@ export default function SchedulePage() {
   useEffect(() => {
     async function loadSelectedSchedule() {
       try {
-        const data = await ScheduleRepository.getDaySchedule(selectedDayEn);
+        // ✅ FIX Bug #1: Query by selectedDateKey so dated schedules
+        // and weekly templates both resolve correctly per week offset.
+        const data = await ScheduleRepository.getScheduleForDate(selectedDateKey, selectedDayEn);
         if (data && Array.isArray(data.schedule)) {
           setSchedule(data.schedule);
           setIsSaved(true);
@@ -86,7 +88,7 @@ export default function SchedulePage() {
       }
     }
     loadSelectedSchedule();
-  }, [selectedDayEn]);
+  }, [selectedDateKey, selectedDayEn]);
 
   useEffect(() => {
     async function loadWeekStatus() {

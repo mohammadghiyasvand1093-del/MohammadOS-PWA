@@ -127,13 +127,14 @@ export async function exportToCSV(range) {
       }
 
       entries.forEach((entry) => {
-        const duration = calculateDurationMin(entry.startTime, entry.endTime);
+        // ✅ FIX Bug #6: Entries use plannedStart/plannedEnd, not startTime/endTime
+        const duration = calculateDurationMin(entry.plannedStart, entry.plannedEnd);
         const row = [
           escapeCsv(baseRow.date),
           escapeCsv(entry.title),
           escapeCsv(entry.type || entry.category || ""),
-          escapeCsv(entry.startTime),
-          escapeCsv(entry.endTime),
+          escapeCsv(entry.plannedStart),
+          escapeCsv(entry.plannedEnd),
           escapeCsv(duration),
           escapeCsv(entry.done ? "بله" : "خیر"),
           escapeCsv(entry.isCritical ? "بله" : "خیر"),

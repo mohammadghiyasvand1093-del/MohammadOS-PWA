@@ -1,6 +1,6 @@
 // src/app/lifeWheelService.js
 import { db } from "../db/database";
-import { getISOWeekRange } from "../utils/date";
+import { getPersianWeekRange } from "../utils/date";
 
 export const LIFE_WHEEL_DIMENSIONS = [
   { id: "career", label: "مسیر شغلی" },
@@ -171,7 +171,7 @@ export async function saveLifeWheelManualScores(periodKey, manualScores = {}) {
   }
 
   const normalized = normalizeManualScores(manualScores);
-  const rangeInfo = getISOWeekRange(periodKey);
+  const rangeInfo = getPersianWeekRange(periodKey);
 
   const documentToPut = {
     id: periodKey,

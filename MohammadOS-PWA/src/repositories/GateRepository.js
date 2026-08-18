@@ -4,7 +4,21 @@ import { db } from "../db/database";
 export const GateRepository = {
   async getAll() {
     const data = await db.gates.toArray();
-    return (data || []).sort((a, b) => (a.order || 0) - (b.order || 0));
+    // ✅ FIX Bug #2: Sort by deadline (ascending). Items without deadline
+    // keep their manual order relative to each other and appear after
+    // dated items so upcoming milestones surface first.
+    return (data || []).sort((a, b) => {
+      const da = a.deadline || '';
+      const db_ = b.deadline || '';
+      // Both have deadlines → sort chronologically
+      if (da && db_) return da.localeCompare(db_);
+      // Only a has deadline → a comes first
+      if (da) return -1;
+      // Only b has deadline → b comes first
+      if (db_) return 1;
+      // Neither has deadline → preserve manual order
+      return (a.order || 0) - (b.order || 0);
+    });
   },
 
   async getById(id) {
