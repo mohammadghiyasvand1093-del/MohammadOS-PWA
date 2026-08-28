@@ -59,8 +59,34 @@ function PageLoader() {
   );
 }
 
+function AccountState({ title, description, onSignOut }) {
+  return (
+    <main className="min-h-screen w-full flex items-center justify-center p-4 bg-os-bg text-os-text" dir="rtl">
+      <section className="w-full max-w-md bg-os-card border border-os-border rounded-2xl p-6 text-center shadow-2xl">
+        <div className="text-4xl mb-4" aria-hidden="true">🔒</div>
+        <h1 className="text-xl font-black">{title}</h1>
+        <p className="text-xs leading-6 text-os-text/60 mt-3">{description}</p>
+        <button type="button" onClick={onSignOut} className="mt-6 rounded-lg border border-red-500/50 px-4 py-2 text-xs text-red-300 hover:bg-red-500/10">
+          خروج
+        </button>
+      </section>
+    </main>
+  );
+}
+
+function GuestAccessGuard() {
+  const { signOut } = useAuth();
+  return (
+    <AccountState
+      title="حساب مهمان فعال است"
+      description="فضای مستقل مهمان هنوز در حال آماده‌سازی است. برای جلوگیری از نمایش اطلاعات مالک، دسترسی به داشبورد فعلاً بسته است."
+      onSignOut={signOut}
+    />
+  );
+}
+
 function AuthenticatedAppLayout() {
-  const { user, signOut } = useAuth();
+  const { user, role, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
@@ -230,6 +256,8 @@ function AuthenticatedAppLayout() {
       default: return "MohammadOS";
     }
   };
+
+  if (role === "guest") return <GuestAccessGuard />;
 
   return (
     <div className="flex h-screen w-full bg-os-bg text-os-text font-vazir rtl select-none overflow-hidden">
@@ -484,7 +512,7 @@ function AuthenticatedAppLayout() {
 }
 
 function AppLayout() {
-  const { user, loading } = useAuth();
+  const { user, role, loading, profileLoading, profileError, signOut } = useAuth();
 
   if (loading) {
     return (
@@ -494,7 +522,24 @@ function AppLayout() {
     );
   }
 
-  return user ? <AuthenticatedAppLayout /> : <LoginPage />;
+  if (!user) return <LoginPage />;
+  if (profileLoading) {
+    return (
+      <main className="min-h-screen w-full flex items-center justify-center bg-os-bg text-os-text" dir="rtl">
+        <div className="text-sm text-os-text/60" role="status" aria-live="polite">در حال بررسی سطح دسترسی...</div>
+      </main>
+    );
+  }
+  if (profileError || !role) {
+    return (
+      <AccountState
+        title="حساب هنوز فعال نشده است"
+        description={profileError || "برای این حساب نقش مالک یا مهمان ثبت نشده است."}
+        onSignOut={signOut}
+      />
+    );
+  }
+  return <AuthenticatedAppLayout />;
 }
 
 export default function App() {
