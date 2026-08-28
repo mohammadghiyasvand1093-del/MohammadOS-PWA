@@ -526,4 +526,45 @@ db.version(20).stores({
   sync_queue: "id, eventId, status, createdAt, retryAt",
 });
 
+/* =========================
+ * v21 — explicit schedule modes
+ * weekly_template: repeats by weekday
+ * dated_plan: one exact plan for every date in a range
+ * one_off_event: one exact date, including manually-created events
+ * ========================= */
+db.version(21)
+  .stores({
+    habits: "id, date, habitId, domain, lastEmaDate, strengthBeforeToday",
+    courses: "id, name, instructor",
+    courseSessions:
+      "id, courseId, date, episodeNumber, status, [courseId+status]",
+    fixedEvents: "id, dayOfWeek, title, startTime, endTime",
+    schedules:
+      "id, scheduleMode, dayOfWeek, dateKey, planId, startDate, endDate",
+    dayLogs:
+      "date, fullDay, year, month, week, dayOfWeek, status, [year+month], [year+month+status]",
+    activeTimer: "id, taskRefId, isRunning",
+    gates: "id, title, order",
+    drafts: "key",
+    lifeWheelScores:
+      "id, periodKey, startDate, endDate, year, month, week, [year+month]",
+    importHistory: "id, type, importedAt",
+    events: "id, type, aggregate, aggregateId, createdAt",
+    sync_queue: "id, eventId, status, createdAt, retryAt",
+  })
+  .upgrade(async (tx) => {
+    await tx.table("schedules").toCollection().modify((record) => {
+      if (!record.scheduleMode) {
+        record.scheduleMode = /^\d{4}-\d{2}-\d{2}$/.test(record.dayOfWeek)
+          ? "one_off_event"
+          : "weekly_template";
+      }
+      if (record.scheduleMode !== "weekly_template" && !record.dateKey) {
+        record.dateKey = /^\d{4}-\d{2}-\d{2}$/.test(record.dayOfWeek)
+          ? record.dayOfWeek
+          : null;
+      }
+    });
+  });
+
 export default db;

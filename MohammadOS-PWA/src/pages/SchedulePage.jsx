@@ -5,6 +5,7 @@ import { ScheduleRepository } from "../repositories/ScheduleRepository";
 import { DayLogRepository } from "../repositories/DayLogRepository";
 import { exportScheduleToIcs } from "../app/exportSchedule";
 import { nowMs } from "../utils/date";
+import { SCHEDULE_MODES } from "../utils/schedule";
 
 const timeToMinutes = (timeStr) => {
   if (!timeStr) return 0;
@@ -41,6 +42,7 @@ export default function SchedulePage() {
   const [currentTime, setCurrentTime] = useState(new Date(nowMs()));
   const [error, setError] = useState(null);
   const [icsStatus, setIcsStatus] = useState("");
+  const [icsMode, setIcsMode] = useState(SCHEDULE_MODES.WEEKLY);
 
   const todayDateKey = useMemo(() => {
     const d = new Date(currentTime);
@@ -53,6 +55,7 @@ export default function SchedulePage() {
   }, [currentTime]);
 
   const [schedule, setSchedule] = useState([]);
+  const [scheduleSource, setScheduleSource] = useState("none");
   const [isSaved, setIsSaved] = useState(false);
   const [weekStatus, setWeekStatus] = useState([]);
   const [selectedIndex, setSelectedIndex] = useState(todayIdxSatStart);
@@ -65,7 +68,7 @@ export default function SchedulePage() {
   const isTodaySelected = selectedDateKey === todayDateKey;
 
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date(nowMs())), 1000);
+    const timer = setInterval(() => setCurrentTime(new Date(nowMs())), 30000);
     return () => clearInterval(timer);
   }, []);
 
@@ -77,9 +80,11 @@ export default function SchedulePage() {
         const data = await ScheduleRepository.getScheduleForDate(selectedDateKey, selectedDayEn);
         if (data && Array.isArray(data.schedule)) {
           setSchedule(data.schedule);
+          setScheduleSource(data.source || "none");
           setIsSaved(true);
         } else {
           setSchedule([]);
+          setScheduleSource("none");
           setIsSaved(false);
         }
       } catch (err) {
@@ -179,7 +184,12 @@ export default function SchedulePage() {
   const handleExportIcs = async () => {
     setIcsStatus("در حال ساخت فایل تقویم...");
     try {
-      await exportScheduleToIcs();
+      await exportScheduleToIcs({
+        mode: icsMode,
+        ...(icsMode === SCHEDULE_MODES.DATED
+          ? { startDate: weekDates[0], endDate: weekDates[6] }
+          : {}),
+      });
       setIcsStatus("✅ فایل .ICS با موفقیت دانلود شد!");
     } catch (err) {
       if (err.message === "NO_SCHEDULE_DATA") {
@@ -203,7 +213,9 @@ export default function SchedulePage() {
         <div className="text-center">
           <h1 className="text-3xl font-black mb-1">کنسول مأموریت: {selectedDayFa}</h1>
           <p className="font-mono text-[10px] tracking-[0.3em] text-os-accent uppercase">Operational Status: Optimal</p>
-          {isSaved && <p className="mt-2 text-[10px] font-mono text-green-400/70">LOCAL SCHEDULE SYNCED</p>}
+          {isSaved && <p className="mt-2 text-[10px] font-mono text-green-400/70">
+            LOCAL SCHEDULE SYNCED · {scheduleSource === "dated_plan" ? "DATED PLAN" : scheduleSource === "one_off_event" ? "ONE-OFF EVENT" : "WEEKLY TEMPLATE"}
+          </p>}
         </div>
       </div>
 
@@ -330,6 +342,17 @@ export default function SchedulePage() {
       </div>
 
       <div className="space-y-4 border-t border-os-border pt-8">
+        <label className="block text-xs font-mono text-os-text/60">
+          نوع خروجی تقویم
+          <select
+            value={icsMode}
+            onChange={(event) => setIcsMode(event.target.value)}
+            className="mt-2 w-full p-3 rounded-md bg-os-bg border border-os-border text-os-text"
+          >
+            <option value={SCHEDULE_MODES.WEEKLY}>الگوی هفتگی</option>
+            <option value={SCHEDULE_MODES.DATED}>برنامه تاریخ‌محور همین هفته</option>
+          </select>
+        </label>
         <button
           onClick={handleExportIcs}
           className="w-full p-3 rounded-md font-mono text-sm border border-os-border text-os-text hover:bg-os-card transition flex items-center justify-center gap-2"

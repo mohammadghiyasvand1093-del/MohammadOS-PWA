@@ -1,41 +1,123 @@
 // src/repositories/ScheduleRepository.js
 
 import { db } from "../db/database";
+import {
+  SCHEDULE_MODES,
+  blockSignature,
+  getDateRangeInclusive,
+  isDateKey,
+} from "../utils/schedule";
+import { getDayEnFromDateKey, getLocalDateKey } from "../utils/date";
+
+function validateBlocks(scheduleData) {
+  if (!Array.isArray(scheduleData)) {
+    throw new Error("Invalid scheduleData: must be an array");
+  }
+  for (const block of scheduleData) {
+    if (block?.domain !== undefined && block?.domain !== null && typeof block.domain !== "string") {
+      throw new Error("Invalid block.domain: must be a string when provided");
+    }
+  }
+}
+
+function normalizeMode(dayOfWeek, options = {}) {
+  if (options.scheduleMode) return options.scheduleMode;
+  return isDateKey(dayOfWeek) ? SCHEDULE_MODES.ONE_OFF : SCHEDULE_MODES.WEEKLY;
+}
+
+function sortBlocks(blocks) {
+  return [...blocks].sort((a, b) => {
+    const [ah, am] = (a.startTime || "99:99").split(":").map(Number);
+    const [bh, bm] = (b.startTime || "99:99").split(":").map(Number);
+    return (ah * 60 + am) - (bh * 60 + bm);
+  });
+}
 
 export const ScheduleRepository = {
-  async saveDaySchedule(dayOfWeek, scheduleData) {
+  async saveDaySchedule(dayOfWeek, scheduleData, options = {}) {
     if (!dayOfWeek || typeof dayOfWeek !== 'string') {
       throw new Error('Invalid dayOfWeek: must be a non-empty string');
     }
-    if (!Array.isArray(scheduleData)) {
-      throw new Error('Invalid scheduleData: must be an array');
-    }
-
-    // ✅ Batch 48 (Reviewer 2 — P2): Validate optional block.domain
-    // Allows UI to start emitting domain in the future without schema breakage
-    for (const block of scheduleData) {
-      if (
-        block &&
-        block.domain !== undefined &&
-        block.domain !== null &&
-        typeof block.domain !== 'string'
-      ) {
-        throw new Error('Invalid block.domain: must be a string when provided');
-      }
-    }
-
-    const existing = await db.schedules.where("dayOfWeek").equals(dayOfWeek).first();
+    validateBlocks(scheduleData);
+    const scheduleMode = normalizeMode(dayOfWeek, options);
+    const dateKey = options.dateKey || (isDateKey(dayOfWeek) ? dayOfWeek : null);
+    const existing = await db.schedules
+      .where("dayOfWeek").equals(dayOfWeek)
+      .filter((record) =>
+        (record.scheduleMode || normalizeMode(record.dayOfWeek)) === scheduleMode &&
+        (scheduleMode === SCHEDULE_MODES.DATED
+          ? record.dateKey === dateKey
+          : scheduleMode !== SCHEDULE_MODES.ONE_OFF || record.dateKey === dateKey)
+      )
+      .first();
 
     const record = {
       id: existing?.id ?? crypto.randomUUID(),
       dayOfWeek,
       schedule: scheduleData,
+      scheduleMode,
+      dateKey,
+      planId: options.planId || existing?.planId || null,
+      startDate: options.startDate || existing?.startDate || null,
+      endDate: options.endDate || existing?.endDate || null,
       createdAt: existing?.createdAt ?? new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
     await db.schedules.put(record);
     return record;
+  },
+
+  async saveWeeklySchedule(dayOfWeek, scheduleData) {
+    return this.saveDaySchedule(dayOfWeek, scheduleData, {
+      scheduleMode: SCHEDULE_MODES.WEEKLY,
+    });
+  },
+
+  async saveDatedPlan({ planId = crypto.randomUUID(), title = "", startDate, endDate, days }) {
+    const dates = getDateRangeInclusive(startDate, endDate);
+    if (!dates.length || dates.length > 62) {
+      throw new Error("بازه برنامه باید بین ۱ تا ۶۲ روز باشد.");
+    }
+    if (!Array.isArray(days)) throw new Error("days باید آرایه باشد.");
+    const byDate = new Map(days.map((day) => [day.date || day.dayOfWeek, day]));
+    if (byDate.size !== dates.length || dates.some((date) => !byDate.has(date))) {
+      throw new Error("برنامه تاریخ‌محور باید برای تک‌تک تاریخ‌های بازه ورودی داشته باشد.");
+    }
+    const now = new Date().toISOString();
+    const records = dates.map((dateKey) => {
+      const day = byDate.get(dateKey);
+      validateBlocks(day.schedule || day.blocks || []);
+      return {
+        id: crypto.randomUUID(),
+        scheduleMode: SCHEDULE_MODES.DATED,
+        planId,
+        title,
+        dateKey,
+        dayOfWeek: getDayEnFromDateKey(dateKey),
+        startDate,
+        endDate,
+        schedule: day.schedule || day.blocks || [],
+        createdAt: now,
+        updatedAt: now,
+      };
+    });
+    await db.transaction("rw", db.schedules, async () => {
+      await db.schedules.where("planId").equals(planId).delete();
+      await db.schedules.bulkPut(records);
+    });
+    return { planId, startDate, endDate, days: records.length, totalBlocks: records.reduce((sum, day) => sum + day.schedule.length, 0) };
+  },
+
+  async getDatedPlanRecordsInRange(startDate, endDate) {
+    return db.schedules
+      .where("dateKey").between(startDate, endDate, true, true)
+      .filter((record) => record.scheduleMode === SCHEDULE_MODES.DATED)
+      .toArray();
+  },
+
+  async deleteDatedPlan(planId) {
+    if (planId) await db.schedules.where("planId").equals(planId).delete();
   },
 
   async getDaySchedule(dayOfWeek) {
@@ -51,45 +133,43 @@ export const ScheduleRepository = {
       throw new Error('Invalid dateStr');
     }
 
+    const dateRecords = await db.schedules.where("dayOfWeek").equals(dateStr).toArray();
+    const datedRecords = await db.schedules.where("dateKey").equals(dateStr)
+      .filter((record) => record.scheduleMode === SCHEDULE_MODES.DATED)
+      .toArray();
+    const explicit = [...dateRecords, ...datedRecords].filter((record, index, list) =>
+      list.findIndex((item) => item.id === record.id) === index
+    );
+    const dated = explicit.filter((record) => record.scheduleMode === SCHEDULE_MODES.DATED);
+    const oneOff = explicit.filter((record) =>
+      (record.scheduleMode || (isDateKey(record.dayOfWeek) ? SCHEDULE_MODES.ONE_OFF : null)) === SCHEDULE_MODES.ONE_OFF
+    );
+    const weekly = dayOfWeekFallback
+      ? await db.schedules.where("dayOfWeek").equals(dayOfWeekFallback)
+        .filter((record) => (record.scheduleMode || SCHEDULE_MODES.WEEKLY) === SCHEDULE_MODES.WEEKLY)
+        .first()
+      : null;
+    const sourceRecords = dated.length ? [...dated, ...oneOff] : [...(weekly ? [weekly] : []), ...oneOff];
+    if (!sourceRecords.length) return null;
     const merged = [];
     const seen = new Set();
-
-    // 1. Date-specific schedule (imported study plans, one-off events)
-    const dateSchedules = await db.schedules.where("dayOfWeek").equals(dateStr).toArray();
-    for (const rec of dateSchedules) {
-      for (const block of rec.schedule || []) {
-        const sig = `${block.title}|${block.startTime}|${block.endTime}`;
-        if (!seen.has(sig)) {
-          seen.add(sig);
+    for (const record of sourceRecords) {
+      for (const block of record.schedule || []) {
+        const signature = blockSignature(block);
+        if (!seen.has(signature)) {
+          seen.add(signature);
           merged.push(block);
         }
       }
     }
-
-    // 2. Weekly template — always merge (never discard)
-    if (dayOfWeekFallback) {
-      const weeklyRec = await this.getDaySchedule(dayOfWeekFallback);
-      if (weeklyRec) {
-        for (const block of weeklyRec.schedule || []) {
-          const sig = `${block.title}|${block.startTime}|${block.endTime}`;
-          if (!seen.has(sig)) {
-            seen.add(sig);
-            merged.push(block);
-          }
-        }
-      }
-    }
-
-    if (merged.length === 0) return null;
-
-    // Sort by startTime so blocks appear in chronological order
-    merged.sort((a, b) => {
-      const ta = (a.startTime || '99:99').split(':').map(Number);
-      const tb = (b.startTime || '99:99').split(':').map(Number);
-      return (ta[0] * 60 + ta[1]) - (tb[0] * 60 + tb[1]);
-    });
-
-    return { dayOfWeek: dateStr, schedule: merged };
+    return {
+      dayOfWeek: dateStr,
+      dateKey: dateStr,
+      schedule: sortBlocks(merged),
+      source: dated.length ? SCHEDULE_MODES.DATED : (oneOff.length ? (weekly ? "weekly_with_event" : SCHEDULE_MODES.ONE_OFF) : SCHEDULE_MODES.WEEKLY),
+      isExplicit: dated.length > 0 || oneOff.length > 0,
+      planId: dated[0]?.planId || null,
+    };
   },
 
   async getAllSchedules() {
@@ -104,8 +184,15 @@ export const ScheduleRepository = {
   },
 
   async getWeekSchedule(weekOffset = 0) {
-    void weekOffset;
-    const all = await this.getAllSchedules();
-    return all;
+    const today = new Date();
+    const saturday = new Date(today);
+    const jsDay = saturday.getDay();
+    saturday.setDate(saturday.getDate() - (jsDay === 6 ? 0 : jsDay + 1) + weekOffset * 7);
+    return Promise.all(Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(saturday);
+      date.setDate(saturday.getDate() + index);
+      const dateKey = getLocalDateKey(date);
+      return this.getScheduleForDate(dateKey, getDayEnFromDateKey(dateKey));
+    }));
   },
 };

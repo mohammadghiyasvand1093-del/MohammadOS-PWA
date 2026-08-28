@@ -1,5 +1,7 @@
 // src/app/exportSchedule.js
 import { ScheduleRepository } from "../repositories/ScheduleRepository";
+import { getDayEnFromDateKey, getLocalDateKey } from "../utils/date";
+import { getDateRangeInclusive, SCHEDULE_MODES } from "../utils/schedule";
 
 const dayMapToICS = {
   sunday: "SU",
@@ -38,12 +40,8 @@ function downloadFile(filename, content) {
   URL.revokeObjectURL(url);
 }
 
-export async function exportScheduleToIcs() {
-  // فetch day by day to ensure safety
+export async function exportScheduleToIcs({ mode = SCHEDULE_MODES.WEEKLY, startDate, endDate } = {}) {
   const days = ["saturday", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday"];
-  const allSchedules = await Promise.all(
-    days.map(d => ScheduleRepository.getDaySchedule(d).catch(() => null))
-  );
 
   let hasEvents = false;
 
@@ -55,31 +53,43 @@ export async function exportScheduleToIcs() {
     "METHOD:PUBLISH"
   ];
 
-  // Find the Saturday of the current week to use as the base DTSTART
   const today = new Date();
-  const currentDay = today.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-  const daysToSubtract = currentDay === 6 ? 0 : currentDay + 1;
-  const saturdayDate = new Date(today);
-  saturdayDate.setDate(today.getDate() - daysToSubtract);
-  const startDateStr = saturdayDate
-    .toISOString()
-    .split("T")[0]
-    .replace(/-/g, "");
+  const currentDay = today.getDay();
+  const saturday = new Date(today);
+  saturday.setDate(today.getDate() - (currentDay === 6 ? 0 : currentDay + 1));
+  const weeklyStart = getLocalDateKey(saturday);
+  const weeklyRecords = mode === SCHEDULE_MODES.WEEKLY
+    ? await Promise.all(days.map((day) => ScheduleRepository.getDaySchedule(day).catch(() => null)))
+    : [];
+  const datedRecords = mode === SCHEDULE_MODES.DATED && startDate && endDate
+    ? await ScheduleRepository.getDatedPlanRecordsInRange(startDate, endDate)
+    : [];
+  const datedByDate = new Map(datedRecords.map((record) => [record.dateKey, record]));
+  const dates = mode === SCHEDULE_MODES.DATED
+    ? getDateRangeInclusive(startDate, endDate)
+    : days.map((_, index) => {
+      const d = new Date(saturday);
+      d.setDate(saturday.getDate() + index);
+      return getLocalDateKey(d);
+    });
 
-  allSchedules.forEach((daySchedule, index) => {
+  dates.forEach((dateKey, index) => {
+    const dayOfWeek = mode === SCHEDULE_MODES.DATED
+      ? getDayEnFromDateKey(dateKey)
+      : days[index];
+    const daySchedule = mode === SCHEDULE_MODES.DATED
+      ? datedByDate.get(dateKey)
+      : weeklyRecords[index];
     if (!daySchedule || !Array.isArray(daySchedule.schedule)) return;
-
-    const dayOfWeek = days[index];
     const dayCode = dayMapToICS[dayOfWeek];
-    if (!dayCode) return;
-
-    daySchedule.schedule.forEach((block) => {
+    daySchedule.schedule.forEach((block, blockIndex) => {
       if (!block || !block.startTime || !block.endTime) return;
 
-      const uidBase = `${dayOfWeek}-${block.startTime}`.replace(/[^a-zA-Z0-9-]/g, "");
+      const uidBase = `${dateKey}-${block.id || blockIndex}-${block.startTime}`.replace(/[^a-zA-Z0-9-]/g, "");
       const uid = `${uidBase}@mohammados.local`;
-      const dtStart = `DTSTART;TZID=Asia/Tehran:${startDateStr}T${formatTimeToICS(block.startTime)}`;
-      const dtEnd = `DTEND;TZID=Asia/Tehran:${startDateStr}T${formatTimeToICS(block.endTime)}`;
+      const icsDate = dateKey.replace(/-/g, "");
+      const dtStart = `DTSTART;TZID=Asia/Tehran:${icsDate}T${formatTimeToICS(block.startTime)}`;
+      const dtEnd = `DTEND;TZID=Asia/Tehran:${icsDate}T${formatTimeToICS(block.endTime)}`;
 
       icsLines.push(
         "BEGIN:VEVENT",
@@ -87,7 +97,7 @@ export async function exportScheduleToIcs() {
         `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z`,
         dtStart,
         dtEnd,
-        `RRULE:FREQ=WEEKLY;BYDAY=${dayCode}`,
+        ...(mode === SCHEDULE_MODES.WEEKLY ? [`RRULE:FREQ=WEEKLY;BYDAY=${dayCode}`] : []),
         `SUMMARY:${escapeIcsText(block.title || "ماموریت")}`,
         `CATEGORIES:${escapeIcsText((block.type || "general").toUpperCase())}`
       );
@@ -108,5 +118,10 @@ export async function exportScheduleToIcs() {
   }
 
   const icsContent = icsLines.join("\r\n");
-  downloadFile("MohammadOS_Weekly_Schedule.ics", icsContent);
+  downloadFile(
+    mode === SCHEDULE_MODES.DATED
+      ? `MohammadOS_Dated_Schedule_${startDate}_${endDate}.ics`
+      : `MohammadOS_Weekly_Schedule_${weeklyStart}.ics`,
+    icsContent
+  );
 }

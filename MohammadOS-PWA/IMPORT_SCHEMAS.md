@@ -41,6 +41,61 @@ Time Format: HH:MM (24-hour format).
 Duration Limit: Total scheduled time per day must not exceed 19 hours (returns a warning).
 Overlap Detection: Overlapping time blocks return a warning.
 
+3. Weekly template schedule
+Use this mode for activities that repeat every week:
+
+```json
+{
+  "scheduleMode": "weekly_template",
+  "days": [
+    {
+      "dayOfWeek": "saturday",
+      "schedule": [
+        {
+          "title": "مطالعه",
+          "startTime": "09:00",
+          "endTime": "10:00",
+          "type": "habit",
+          "domain": "learning",
+          "isCritical": false,
+          "note": ""
+        }
+      ]
+    }
+  ]
+}
+```
+
+4. Dated plan schedule
+Use this mode for an exam period, project sprint, trip, or any range where each date is planned independently.
+Every date between `startDate` and `endDate` must appear exactly once, including dates with an empty `schedule`.
+
+```json
+{
+  "scheduleMode": "dated_plan",
+  "title": "برنامه شهریور",
+  "timeZone": "Asia/Tehran",
+  "startDate": "2026-09-01",
+  "endDate": "2026-09-30",
+  "days": [
+    {
+      "date": "2026-09-01",
+      "schedule": []
+    }
+  ]
+}
+```
+
+Rules:
+
+- Dates use Gregorian `YYYY-MM-DD`.
+- `weekly_template` repeats by weekday.
+- `dated_plan` replaces the weekly template inside its range.
+- Manually-created events are stored as `one_off_event` and remain visible on top of both modes.
+
+The AI coach proxy is optional. To show it as configured in the UI, set the public build flag
+`VITE_AI_PROXY_ENABLED=true`; the private `AVALAI_API_KEY` must remain a server-side deployment secret.
+
 ---
 
 ### ۶. فایل `src/db/database.js` (تکمیل Batch 58 و 61)

@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { ScheduleRepository } from "../repositories/ScheduleRepository";
 import { db } from "../db/database";
 import { toPersianDate, nowMs, getLocalDateKey } from "../utils/date";
+import { importDatedSchedule, importWeeklySchedule } from "../app/ImportService";
 
 const WEEK_DAYS_SHORT = ["ش", "ی", "د", "س", "چ", "پ", "ج"];
 
@@ -83,7 +84,7 @@ export default function PlannerPage() {
           const sig = `${record.dayOfWeek}|${block.title}|${block.startTime}|${block.endTime}`;
           if (seen.has(sig)) continue;
           seen.add(sig);
-          dateEvents.push({ ...block, date: record.dayOfWeek, scheduleId: record.id });
+          dateEvents.push({ ...block, date: record.dayOfWeek, scheduleId: record.id, eventId: block.id || null, blockIndex: record.schedule.indexOf(block) });
         }
       }
       dateEvents.sort((a, b) => (a.date > b.date ? 1 : -1));
@@ -106,6 +107,7 @@ export default function PlannerPage() {
     }
 
     const block = {
+      id: crypto.randomUUID(),
       title: form.title.trim(),
       type: "event",
       startTime: form.startTime,
@@ -127,21 +129,33 @@ export default function PlannerPage() {
       return;
     }
 
-    await ScheduleRepository.saveDaySchedule(form.date, [...current, block]);
+    await ScheduleRepository.saveDaySchedule(form.date, [...current, block], {
+      scheduleMode: "one_off_event",
+      dateKey: form.date,
+    });
 
     await loadEvents();
     setShowForm(false);
     setForm({ title: "", date: selectedDate || "", startTime: "09:00", endTime: "10:00", priority: 3, urgencyLevel: "normal", note: "" });
   }
 
-  async function handleDeleteEvent(date, title) {
-    const existing = await ScheduleRepository.getDaySchedule(date);
+  async function handleDeleteEvent(date, title, scheduleId, eventId, blockIndex) {
+    const existing = scheduleId
+      ? await db.schedules.get(scheduleId)
+      : await ScheduleRepository.getDaySchedule(date);
     if (!existing?.schedule) return;
-    const updated = existing.schedule.filter(b => !(b.title === title && b.type === "event"));
+    const updated = existing.schedule.filter((b, index) => {
+      if (eventId) return b.id !== eventId;
+      return !(index === blockIndex || (b.title === title && b.type === "event"));
+    });
     if (updated.length === 0) {
       await ScheduleRepository.delete(existing.id);
     } else {
-      await ScheduleRepository.saveDaySchedule(date, updated);
+      await ScheduleRepository.saveDaySchedule(date, updated, {
+        scheduleMode: existing.scheduleMode || "one_off_event",
+        dateKey: existing.dateKey || date,
+        planId: existing.planId,
+      });
     }
     await loadEvents();
   }
@@ -155,7 +169,15 @@ export default function PlannerPage() {
       const hasDays = data.days && Array.isArray(data.days);
       const hasSchedule = data.schedule && Array.isArray(data.schedule);
 
-      if (hasGates) {
+      if (data.scheduleMode === "dated_plan") {
+        const result = await importDatedSchedule(advisorJson);
+        setAdvisorMsg({ type: "success", text: `${result.days} روز و ${result.totalBlocks} بلوک تاریخ‌محور import شد.` });
+        setAdvisorJson("");
+      } else if (data.scheduleMode === "weekly_template") {
+        const result = await importWeeklySchedule(advisorJson);
+        setAdvisorMsg({ type: "success", text: `${result.importedDays} روز از الگوی هفتگی import شد.` });
+        setAdvisorJson("");
+      } else if (hasGates) {
         // ── Roadmap Import ──
         const gatesToImport = data.gates;
         let importedCount = 0;
@@ -212,6 +234,8 @@ export default function PlannerPage() {
               endTime: b.endTime || "09:00",
               isCritical: b.isCritical || false,
               priority: b.priority || 3,
+              domain: b.domain || "general",
+              id: b.id || crypto.randomUUID(),
             };
             const sig = `${block.title}|${block.startTime}`;
             if (!sigs.has(sig)) {
@@ -220,7 +244,10 @@ export default function PlannerPage() {
               importedCount++;
             }
           }
-          await ScheduleRepository.saveDaySchedule(day.dayOfWeek, merged);
+          await ScheduleRepository.saveDaySchedule(day.dayOfWeek, merged, {
+            scheduleMode: /^\d{4}-\d{2}-\d{2}$/.test(day.dayOfWeek) ? "one_off_event" : "weekly_template",
+            dateKey: /^\d{4}-\d{2}-\d{2}$/.test(day.dayOfWeek) ? day.dayOfWeek : null,
+          });
         }
         setAdvisorMsg({ type: "success", text: `${importedCount} بلوک برنامهٔ درسی import شد.` });
         setAdvisorJson("");
@@ -334,12 +361,13 @@ export default function PlannerPage() {
             </p>
             <ul className="text-[10px] font-mono text-os-text/40 list-disc list-inside space-y-0.5">
               <li>اگر فیلد <code className="text-os-accent">gates</code> دارد → نقشه راه</li>
-              <li>اگر فیلد <code className="text-os-accent">days</code> یا <code className="text-os-accent">schedule</code> دارد → برنامهٔ درسی</li>
+              <li>اگر <code className="text-os-accent">scheduleMode: dated_plan</code> دارد → برنامهٔ تاریخ‌محور</li>
+              <li>اگر <code className="text-os-accent">scheduleMode: weekly_template</code> یا فیلد <code className="text-os-accent">days</code> دارد → برنامهٔ هفتگی</li>
             </ul>
             <textarea
               value={advisorJson}
               onChange={(e) => setAdvisorJson(e.target.value)}
-              placeholder='{"gates":[...]}  یا  {"days":[{"dayOfWeek":"sunday","schedule":[...]}]}'
+              placeholder='{"scheduleMode":"dated_plan","startDate":"2026-09-01","endDate":"2026-09-30","days":[...]}'
               className="w-full h-32 bg-os-bg border border-os-border rounded p-3 font-mono text-[11px] focus:border-os-accent outline-none resize-none"
             />
             <button
@@ -504,7 +532,7 @@ export default function PlannerPage() {
                   VIEW
                 </button>
                 <button
-                  onClick={() => handleDeleteEvent(ev.date, ev.title)}
+                  onClick={() => handleDeleteEvent(ev.date, ev.title, ev.scheduleId, ev.eventId, ev.blockIndex)}
                   className="text-[10px] font-mono text-red-400 border border-red-400 px-2 py-1 rounded hover:bg-red-400/10 transition"
                 >
                   DEL

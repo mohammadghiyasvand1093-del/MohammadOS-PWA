@@ -34,6 +34,16 @@ const DOMAINS = [
   { key: "social", label: "🤝 اجتماعی", color: "#F97316" },
 ];
 
+const WEEKLY_DAYS = [
+  { value: 0, label: "شنبه" },
+  { value: 1, label: "یکشنبه" },
+  { value: 2, label: "دوشنبه" },
+  { value: 3, label: "سه‌شنبه" },
+  { value: 4, label: "چهارشنبه" },
+  { value: 5, label: "پنجشنبه" },
+  { value: 6, label: "جمعه" },
+];
+
 // ✅ Batch 76: Habit Templates
 const HABIT_TEMPLATES = [
   { name: "ورزش صبحگاهی", domain: "fitness", isCritical: true, icon: "🏃" },
@@ -67,8 +77,10 @@ export default function AddPage() {
 
   const [habits, setHabits] = useState([]);
   const [habitForm, setHabitForm] = useState(initialHabitState);
+  const [selectedWeeklyDays, setSelectedWeeklyDays] = useState([]);
   const [editingHabitId, setEditingHabitId] = useState(null);
   const [editHabitForm, setEditHabitForm] = useState({});
+  const [editWeeklyDays, setEditWeeklyDays] = useState([]);
 
   const markAsTyping = useCallback(() => {
     setDraftStatus((prev) => (prev === "TYPING..." ? prev : "TYPING..."));
@@ -333,6 +345,7 @@ export default function AddPage() {
       domain: template.domain,
       isCritical: template.isCritical,
     }));
+    setSelectedWeeklyDays([]);
     setDraftStatus("TEMPLATE LOADED");
   }, []);
 
@@ -347,6 +360,14 @@ export default function AddPage() {
       return;
     }
 
+    if (
+      habitForm.recurrenceType === "weekly" &&
+      selectedWeeklyDays.length === 0
+    ) {
+      setDraftStatus("ERROR: برای عادت هفتگی حداقل یک روز انتخاب کنید.");
+      return;
+    }
+
     try {
       await saveHabit({
         name: habitForm.name.trim(),
@@ -354,17 +375,20 @@ export default function AddPage() {
         isCritical: habitForm.isCritical,
         recurrence: {
           type: habitForm.recurrenceType,
-          ...(habitForm.recurrenceType === "weekly" ? { days: [] } : {}),
+          ...(habitForm.recurrenceType === "weekly"
+            ? { days: selectedWeeklyDays }
+            : {}),
         },
       });
       setHabitForm(initialHabitState);
+      setSelectedWeeklyDays([]);
       setDraftStatus("HABIT REGISTERED");
       loadHabits();
     } catch (error) {
       console.error("Failed to save habit:", error);
       setDraftStatus("ERROR: " + error.message);
     }
-  }, [habitForm, habits.length]);
+  }, [habitForm, habits.length, selectedWeeklyDays]);
 
   const handleEditHabitClick = (habit) => {
     setEditingHabitId(habit.id);
@@ -374,6 +398,9 @@ export default function AddPage() {
       recurrenceType: habit.recurrence?.type || "daily",
       isCritical: habit.isCritical || false,
     });
+    setEditWeeklyDays(
+      Array.isArray(habit.recurrence?.days) ? habit.recurrence.days : []
+    );
   };
 
   const handleSaveHabitEdit = async () => {
@@ -386,6 +413,14 @@ export default function AddPage() {
         return;
       }
 
+      if (
+        editHabitForm.recurrenceType === "weekly" &&
+        editWeeklyDays.length === 0
+      ) {
+        setDraftStatus("ERROR: برای عادت هفتگی حداقل یک روز انتخاب کنید.");
+        return;
+      }
+
       await HabitRepository.save({
         ...existing,
         id: editingHabitId,
@@ -393,7 +428,7 @@ export default function AddPage() {
         domain: editHabitForm.domain,
         isCritical: editHabitForm.isCritical,
         recurrence: editHabitForm.recurrenceType === "weekly"
-          ? { type: "weekly", days: existing.recurrence?.days || [] }
+          ? { type: "weekly", days: editWeeklyDays }
           : { type: "daily" },
       });
       setEditingHabitId(null);
@@ -621,7 +656,11 @@ export default function AddPage() {
               </label>
               <select
                 value={habitForm.recurrenceType}
-                onChange={(e) => setHabitForm((p) => ({ ...p, recurrenceType: e.target.value }))}
+                onChange={(e) => {
+                  const recurrenceType = e.target.value;
+                  setHabitForm((p) => ({ ...p, recurrenceType }));
+                  if (recurrenceType !== "weekly") setSelectedWeeklyDays([]);
+                }}
                 className="w-full bg-os-bg border border-os-border rounded-lg p-3 text-sm text-os-text outline-none focus:border-os-accent"
               >
                 <option value="daily">Daily</option>
@@ -629,6 +668,28 @@ export default function AddPage() {
               </select>
             </div>
           </div>
+
+          {habitForm.recurrenceType === "weekly" && (
+            <div>
+              <span className="text-[10px] font-mono text-os-text/60 block mb-2">روزهای اجرای عادت هفتگی</span>
+              <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+                {WEEKLY_DAYS.map((day) => {
+                  const selected = selectedWeeklyDays.includes(day.value);
+                  return (
+                    <button
+                      key={day.value}
+                      type="button"
+                      onClick={() => setSelectedWeeklyDays((current) => selected ? current.filter((item) => item !== day.value) : [...current, day.value].sort((a, b) => a - b))}
+                      className={`touch-target py-2 rounded border text-[10px] font-mono ${selected ? "border-os-accent text-os-accent bg-os-accent/10" : "border-os-border text-os-text/50"}`}
+                      aria-pressed={selected}
+                    >
+                      {day.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <label className="flex items-center gap-2 cursor-pointer mt-2">
             <input
@@ -685,13 +746,38 @@ export default function AddPage() {
                     </select>
                     <select
                       value={editHabitForm.recurrenceType}
-                      onChange={(e) => setEditHabitForm((p) => ({ ...p, recurrenceType: e.target.value }))}
+                      onChange={(e) => {
+                        const recurrenceType = e.target.value;
+                        setEditHabitForm((p) => ({ ...p, recurrenceType }));
+                        if (recurrenceType !== "weekly") setEditWeeklyDays([]);
+                      }}
                       className="bg-os-card border border-os-border rounded p-2 text-sm text-os-text outline-none focus:border-os-accent"
                     >
                       <option value="daily">Daily</option>
                       <option value="weekly">Weekly</option>
                     </select>
                   </div>
+                  {editHabitForm.recurrenceType === "weekly" && (
+                    <div>
+                      <span className="text-[10px] font-mono text-os-text/60 block mb-2">روزهای اجرای عادت هفتگی</span>
+                      <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+                        {WEEKLY_DAYS.map((day) => {
+                          const selected = editWeeklyDays.includes(day.value);
+                          return (
+                            <button
+                              key={day.value}
+                              type="button"
+                              onClick={() => setEditWeeklyDays((current) => selected ? current.filter((item) => item !== day.value) : [...current, day.value].sort((a, b) => a - b))}
+                              className={`touch-target py-2 rounded border text-[10px] font-mono ${selected ? "border-os-accent text-os-accent bg-os-accent/10" : "border-os-border text-os-text/50"}`}
+                              aria-pressed={selected}
+                            >
+                              {day.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"

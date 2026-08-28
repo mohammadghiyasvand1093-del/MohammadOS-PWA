@@ -12,7 +12,7 @@ function computeElapsedMs(timer, atMs = nowMs()) {
   if (!timer) return 0;
   const base = timer.accumulatedTime || 0;
   if (!timer.isRunning) return base;
-  const start = timer.startTime || atMs;
+  const start = timer.startTime ?? atMs;
   return base + Math.max(0, atMs - start);
 }
 

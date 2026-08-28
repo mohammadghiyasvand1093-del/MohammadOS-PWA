@@ -1,11 +1,12 @@
 // src/app/ImportService.js
 import { db } from "../db/database";
 import { ScheduleRepository } from "../repositories/ScheduleRepository";
+import { getDateRangeInclusive, isDateKey, SCHEDULE_MODES } from "../utils/schedule";
 
 // ✅ Nazer 2 Fix: Corrected table names to match database.js schema
 const IMPORT_TABLES = [
   "dayLogs", "habits", "courses", "gates", "schedules",
-  "activeTimer", "drafts", "lifeWheelScores"
+  "courseSessions", "fixedEvents", "activeTimer", "drafts", "lifeWheelScores"
 ];
 const MAX_RECORDS_PER_TABLE = 10000;
 
@@ -53,15 +54,12 @@ export const ImportService = {
 
     await db.transaction("rw", ...tableInstances, async () => {
       for (const tableName of IMPORT_TABLES) {
-        const records = Array.isArray(tables[tableName])
-          ? tables[tableName]
-          : [];
-        if (records.length > 0) {
-          const table = db[tableName];
-          if (table) {
-            await table.clear();
-            await table.bulkPut(records);
-          }
+        if (!Object.prototype.hasOwnProperty.call(tables, tableName)) continue;
+        const records = Array.isArray(tables[tableName]) ? tables[tableName] : [];
+        const table = db[tableName];
+        if (table) {
+          await table.clear();
+          if (records.length > 0) await table.bulkPut(records);
         }
       }
     });
@@ -98,6 +96,7 @@ const VALID_DAYS = ["saturday", "sunday", "monday", "tuesday", "wednesday", "thu
 const VALID_TYPES = ["course", "fixed", "habit", "break", "event", "flexible"];
 const VALID_DOMAINS = ["learning", "fitness", "discipline", "work", "rest", "social"];
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 function timeToMinutes(t) {
   if (!t || !TIME_REGEX.test(t)) return 0;
@@ -105,84 +104,67 @@ function timeToMinutes(t) {
   return h * 60 + m;
 }
 
-function validateScheduleJson(json) {
+function validateBlock(block, prefix, warnings, totalMinutesRef, previousBlock) {
+  const errors = [];
+  if (!block || typeof block !== "object") {
+    errors.push(`${prefix}: بلوک نامعتبر است`);
+    return errors;
+  }
+  if (!block.title || typeof block.title !== "string" || block.title.length > 50) errors.push(`${prefix}: title نامعتبر`);
+  if (!block.startTime || !TIME_REGEX.test(block.startTime)) errors.push(`${prefix}: startTime نامعتبر (${block.startTime || "?"})`);
+  if (!block.endTime || !TIME_REGEX.test(block.endTime)) errors.push(`${prefix}: endTime نامعتبر (${block.endTime || "?"})`);
+  const startMin = timeToMinutes(block.startTime);
+  const endMin = timeToMinutes(block.endTime);
+  if (startMin < endMin) totalMinutesRef.value += endMin - startMin;
+  else if (block.startTime && block.endTime) errors.push(`${prefix}: startTime باید قبل از endTime باشد`);
+  if (previousBlock && startMin < timeToMinutes(previousBlock.endTime)) {
+    warnings.push(`⚠️ ${prefix}: هم‌پوشانی زمانی با "${previousBlock.title || "?"}"`);
+  }
+  if (!block.type || !VALID_TYPES.includes(block.type)) errors.push(`${prefix}: type نامعتبر (${block.type || "?"}) — باید یکی از: ${VALID_TYPES.join(", ")}`);
+  if (!block.domain || !VALID_DOMAINS.includes(block.domain)) errors.push(`${prefix}: domain نامعتبر (${block.domain || "?"}) — باید یکی از: ${VALID_DOMAINS.join(", ")}`);
+  return errors;
+}
+
+function validateDays(days, { dated = false } = {}) {
   const errors = [];
   const warnings = []; // ✅ Batch 58: Warnings instead of errors for overlap/limits
-  
-  if (!Array.isArray(json)) {
-    return { valid: false, errors: ["JSON باید یک آرایه باشد"], warnings: [] };
-  }
-  if (json.length === 0) {
+  if (!Array.isArray(days) || days.length === 0) {
     return { valid: false, errors: ["آرایه خالی است"], warnings: [] };
   }
-  if (json.length > 7) {
-    return { valid: false, errors: ["حداکثر ۷ روز مجاز است"], warnings: [] };
-  }
-  
-  json.forEach((day, dayIdx) => {
-    if (!day.dayOfWeek || !VALID_DAYS.includes(day.dayOfWeek)) {
-      errors.push(`روز ${dayIdx + 1}: dayOfWeek نامعتبر (${day.dayOfWeek || "undefined"})`);
+  if (!dated && days.length > 7) return { valid: false, errors: ["حداکثر ۷ روز مجاز است"], warnings: [] };
+  days.forEach((day, dayIdx) => {
+    const dayKey = dated ? day?.date : day?.dayOfWeek;
+    if (!dayKey || (dated ? !DATE_REGEX.test(dayKey) : !VALID_DAYS.includes(dayKey))) {
+      errors.push(`روز ${dayIdx + 1}: ${dated ? "date" : "dayOfWeek"} نامعتبر (${dayKey || "undefined"})`);
     }
-    
-    if (!Array.isArray(day.schedule)) {
-      errors.push(`روز ${day.dayOfWeek || dayIdx + 1}: schedule باید آرایه باشد`);
+    const blocks = day?.schedule || day?.blocks;
+    if (!Array.isArray(blocks)) {
+      errors.push(`${dayKey || dayIdx + 1}: schedule/blocks باید آرایه باشد`);
       return;
     }
-    
-    let totalMinutes = 0;
-    const sortedBlocks = [...day.schedule].sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
-    
+    const totalMinutesRef = { value: 0 };
+    const sortedBlocks = [...blocks].sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
     for (let i = 0; i < sortedBlocks.length; i++) {
       const block = sortedBlocks[i];
-      // 🟢 Fix 4: Use block title instead of confusing sorted index
-      const prefix = `${day.dayOfWeek || "?"} → بلوک "${block.title || "?"}"`;
-      
-      if (!block.title || typeof block.title !== "string" || block.title.length > 50) {
-        errors.push(`${prefix}: title نامعتبر`);
-      }
-      
-      if (!block.startTime || !TIME_REGEX.test(block.startTime)) {
-        errors.push(`${prefix}: startTime نامعتبر (${block.startTime || "?"})`);
-      }
-      
-      if (!block.endTime || !TIME_REGEX.test(block.endTime)) {
-        errors.push(`${prefix}: endTime نامعتبر (${block.endTime || "?"})`);
-      }
-      
-      const startMin = timeToMinutes(block.startTime);
-      const endMin = timeToMinutes(block.endTime);
-      
-      if (startMin < endMin) {
-        totalMinutes += (endMin - startMin);
-      } else if (block.startTime && block.endTime) {
-        errors.push(`${prefix}: startTime باید قبل از endTime باشد`);
-      }
-      
-      // ✅ Batch 58: Check overlap with previous block
-      if (i > 0) {
-        const prevBlock = sortedBlocks[i - 1];
-        const prevEndMin = timeToMinutes(prevBlock.endTime);
-        if (startMin < prevEndMin) {
-          warnings.push(`⚠️ ${day.dayOfWeek}: هم‌پوشانی زمانی بین "${block.title}" و "${prevBlock.title}"`);
-        }
-      }
-      
-      if (!block.type || !VALID_TYPES.includes(block.type)) {
-        errors.push(`${prefix}: type نامعتبر (${block.type || "?"}) — باید یکی از: ${VALID_TYPES.join(", ")}`);
-      }
-      
-      if (!block.domain || !VALID_DOMAINS.includes(block.domain)) {
-        errors.push(`${prefix}: domain نامعتبر (${block.domain || "?"}) — باید یکی از: ${VALID_DOMAINS.join(", ")}`);
-      }
+      errors.push(...validateBlock(block, `${dayKey || "?"} → بلوک "${block?.title || "?"}"`, warnings, totalMinutesRef, i > 0 ? sortedBlocks[i - 1] : null));
     }
-    
-    // 🟢 Fix 5: Using Math.ceil instead of Math.round
-    if (totalMinutes > 1140) {
-      warnings.push(`⚠️ روز ${day.dayOfWeek}: مجموع زمان بلوک‌ها بیش از ۱۹ ساعت (حدود ${Math.ceil(totalMinutes / 60)} ساعت) است.`);
+    if (totalMinutesRef.value > 1140) {
+      warnings.push(`⚠️ روز ${dayKey}: مجموع زمان بلوک‌ها بیش از ۱۹ ساعت (حدود ${Math.ceil(totalMinutesRef.value / 60)} ساعت) است.`);
     }
   });
-  
   return { valid: errors.length === 0, errors, warnings };
+}
+
+function normalizeBlocks(day) {
+  return (day.schedule || day.blocks || []).map((b) => ({
+    title: b.title || b.task || "",
+    startTime: b.startTime,
+    endTime: b.endTime,
+    type: b.type,
+    domain: b.domain,
+    isCritical: Boolean(b.isCritical),
+    note: b.note || "",
+  }));
 }
 
 export async function importWeeklySchedule(jsonText) {
@@ -193,22 +175,17 @@ export async function importWeeklySchedule(jsonText) {
     throw new Error("JSON نامعتبر: " + e.message, { cause: e });
   }
   
-  const validation = validateScheduleJson(parsed);
+  const days = Array.isArray(parsed) ? parsed : parsed?.days;
+  if (parsed?.scheduleMode && parsed.scheduleMode !== SCHEDULE_MODES.WEEKLY) {
+    throw new Error("این JSON برنامه تاریخ‌محور است؛ حالت تاریخ‌محور را انتخاب کنید.");
+  }
+  const validation = validateDays(days, { dated: false });
   if (!validation.valid) {
     throw new Error("خطای اعتبارسنجی:\n" + validation.errors.join("\n"));
   }
   
-  for (const day of parsed) {
-    const scheduleData = day.schedule.map(b => ({
-      title: b.title,
-      startTime: b.startTime,
-      endTime: b.endTime,
-      type: b.type,
-      domain: b.domain,
-      isCritical: Boolean(b.isCritical),
-      note: b.note || "",
-    }));
-    await ScheduleRepository.saveDaySchedule(day.dayOfWeek, scheduleData);
+  for (const day of days) {
+    await ScheduleRepository.saveWeeklySchedule(day.dayOfWeek, normalizeBlocks(day));
   }
   
   // ✅ Batch 61: Log to importHistory
@@ -220,10 +197,48 @@ export async function importWeeklySchedule(jsonText) {
   });
   
   return { 
-    importedDays: parsed.length, 
-    totalBlocks: parsed.reduce((s, d) => s + d.schedule.length, 0),
+    importedDays: days.length,
+    totalBlocks: days.reduce((s, d) => s + normalizeBlocks(d).length, 0),
     warnings: validation.warnings 
   };
+}
+
+export async function importDatedSchedule(jsonText) {
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch (e) {
+    throw new Error("JSON نامعتبر: " + e.message, { cause: e });
+  }
+  if (!parsed || parsed.scheduleMode !== SCHEDULE_MODES.DATED) {
+    throw new Error(`JSON باید scheduleMode برابر "${SCHEDULE_MODES.DATED}" داشته باشد.`);
+  }
+  const { startDate, endDate, days } = parsed;
+  const range = getDateRangeInclusive(startDate, endDate);
+  if (!range.length || range.length > 62) throw new Error("بازه تاریخ باید بین ۱ تا ۶۲ روز باشد.");
+  if (!range.every((date) => isDateKey(date))) throw new Error("تاریخ‌ها باید میلادی و به فرمت YYYY-MM-DD باشند.");
+  const validation = validateDays(days, { dated: true });
+  const dates = (days || []).map((day) => day.date);
+  if (new Set(dates).size !== dates.length || dates.length !== range.length || range.some((date) => !dates.includes(date))) {
+    validation.errors.push("برای تک‌تک روزهای بازه باید یک ورودی با date دقیق وجود داشته باشد.");
+  }
+  if (!validation.valid || validation.errors.length) {
+    throw new Error("خطای اعتبارسنجی:\n" + validation.errors.join("\n"));
+  }
+  const result = await ScheduleRepository.saveDatedPlan({
+    planId: parsed.planId || crypto.randomUUID(),
+    title: parsed.title || "برنامه تاریخ‌محور",
+    startDate,
+    endDate,
+    days: days.map((day) => ({ ...day, schedule: normalizeBlocks(day) })),
+  });
+  await db.importHistory.add({
+    id: crypto.randomUUID(),
+    type: "dated_schedule",
+    importedAt: new Date().toISOString(),
+    warnings: validation.warnings,
+  });
+  return { ...result, warnings: validation.warnings };
 }
 
 // ═══════════════════════════════════════════

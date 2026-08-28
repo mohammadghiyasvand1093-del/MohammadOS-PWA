@@ -95,20 +95,12 @@ export default function StatusPage() {
   const loadWeeklyLogs = useCallback(async () => {
     try {
       const stats = await AggregationService.getWeeklyStats();
-      setWeeklyDayLogs(stats.weeklyDayLogs || []);
+      const logs = stats.weeklyDayLogs || [];
+      setWeeklyDayLogs(logs);
+      return logs;
     } catch (error) {
       console.error("Error loading weekly logs:", error);
-    }
-  }, []);
-
-  const loadVitals = useCallback(async () => {
-    try {
-      const v = await AggregationService.getVitals();
-      setVitals(v);
-    } catch (err) {
-      console.error("Load vitals error:", err);
-    } finally {
-      setLoadingVitals(false);
+      return [];
     }
   }, []);
 
@@ -121,7 +113,7 @@ export default function StatusPage() {
     }
   }, []);
 
-  const loadCoach = useCallback(async () => {
+  const loadCoach = useCallback(async (vitalsData, weeklyDayLogsData) => {
     try {
       const [domainTrend, todayStats] = await Promise.all([
         AggregationService.getDomainTrend(6),
@@ -129,11 +121,11 @@ export default function StatusPage() {
       ]);
       
       const weeklyStats = {
-        weeklyDayLogs: weeklyDayLogs,
-        moodTrend: weeklyDayLogs.map(l => l.mood).filter(m => m != null)
+        weeklyDayLogs: weeklyDayLogsData,
+        moodTrend: weeklyDayLogsData.map(l => l.mood).filter(m => m != null)
       };
 
-      const insights = getInsights(vitals, weeklyStats, domainTrend, todayStats?.dayLog);
+      const insights = getInsights(vitalsData, weeklyStats, domainTrend, todayStats?.dayLog);
       setCoachInsights(insights || []);
     } catch (err) {
       console.error("Load coach insights error:", err);
@@ -141,29 +133,39 @@ export default function StatusPage() {
     } finally {
       setLoadingCoach(false);
     }
-  }, [vitals, weeklyDayLogs]);
+  }, []);
 
+  const refreshInFlightRef = useRef(null);
   const refreshAll = useCallback(async () => {
+    if (refreshInFlightRef.current) return refreshInFlightRef.current;
+
+    const refreshPromise = (async () => {
+      try {
+        const [, weeklyLogs] = await Promise.all([
+          fetchCourses(),
+          loadWeeklyLogs(),
+          loadHeatmap(),
+        ]);
+        const vitalsData = await AggregationService.getVitals();
+        setVitals(vitalsData);
+        setLoadingVitals(false);
+        setWeeklyDayLogs(weeklyLogs);
+        await loadCoach(vitalsData, weeklyLogs);
+      } catch (err) {
+        console.error("Error refreshing data:", err);
+      }
+    })();
+
+    refreshInFlightRef.current = refreshPromise;
     try {
-      await Promise.all([
-        fetchCourses(),
-        loadWeeklyLogs(),
-        loadHeatmap()
-      ]);
-      await loadVitals();
-      await loadCoach();
-    } catch (err) {
-      console.error("Error refreshing data:", err);
+      await refreshPromise;
+    } finally {
+      refreshInFlightRef.current = null;
     }
-  }, [fetchCourses, loadWeeklyLogs, loadHeatmap, loadVitals, loadCoach]);
+  }, [fetchCourses, loadWeeklyLogs, loadHeatmap, loadCoach]);
 
   useEffect(() => {
-    let mounted = true;
-    async function initialFetch() {
-      if (!mounted) return;
-      await refreshAll();
-    }
-    initialFetch();
+    refreshAll();
     
     const handleVisibility = () => {
       if (document.visibilityState === "visible") refreshAll();
@@ -171,7 +173,6 @@ export default function StatusPage() {
     document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
-      mounted = false;
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [refreshAll]);

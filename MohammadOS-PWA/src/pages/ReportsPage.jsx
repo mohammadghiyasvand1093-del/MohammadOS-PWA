@@ -9,8 +9,13 @@ import {
   getPersianWeekKey, getPersianWeekRange, getLocalDateKey, nowMs, toPersianDate, toPersianNumber, toPersianWeekRangeLabel,
 } from "../utils/date";
 
-import { WEEKLY_PLANNER_PROMPT, WEEKLY_PLANNER_GUIDE_TEXT } from "../ai/weeklyPlannerPrompt";
-import { importWeeklySchedule } from "../app/ImportService";
+import {
+  WEEKLY_PLANNER_PROMPT,
+  WEEKLY_PLANNER_GUIDE_TEXT,
+  DATED_PLANNER_PROMPT,
+  DATED_PLANNER_GUIDE_TEXT,
+} from "../ai/weeklyPlannerPrompt";
+import { importDatedSchedule, importWeeklySchedule } from "../app/ImportService";
 
 const DOMAINS = [
   { key: "learning", label: "یادگیری", icon: "📚" }, { key: "fitness", label: "تناسب‌اندام", icon: "💪" },
@@ -20,7 +25,14 @@ const DOMAINS = [
 const MOOD_LABELS = { 1: "😫 خیلی بد", 2: "😕 بد", 3: "😐 معمولی", 4: "🙂 خوب", 5: "😄 عالی" };
 const HEATMAP_LEVELS = ["bg-os-border/20", "bg-emerald-500/30", "bg-emerald-500/50", "bg-emerald-500/70", "bg-emerald-500"];
 const DOMAIN_COLORS = { learning: "#3B82F6", fitness: "#10B981", discipline: "#F59E0B", work: "#8B5CF6", rest: "#64748B", social: "#EC4899" };
-const IMPORT_TABLES = ["dayLogs", "habits", "courses", "gates", "schedules", "activeTimer", "drafts", "lifeWheelScores"];
+const IMPORT_TABLES = ["dayLogs", "habits", "courses", "gates", "schedules", "courseSessions", "fixedEvents", "activeTimer", "drafts", "lifeWheelScores"];
+
+function addDaysToDateKey(dateKey, amount) {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  date.setDate(date.getDate() + amount);
+  return getLocalDateKey(date);
+}
 
 export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState("weekly");
@@ -53,6 +65,9 @@ export default function ReportsPage() {
   const [scheduleImportStatus, setScheduleImportStatus] = useState("");
   const [scheduleImportLoading, setScheduleImportLoading] = useState(false);
   const [aiGuideStep, setAiGuideStep] = useState(1);
+  const [scheduleMode, setScheduleMode] = useState("weekly_template");
+  const [datedStartDate, setDatedStartDate] = useState(getLocalDateKey(new Date()));
+  const [datedEndDate, setDatedEndDate] = useState(addDaysToDateKey(getLocalDateKey(new Date()), 29));
 
   const lastExportRaw = localStorage.getItem("mohammados_last_export");
   const lastExportDate = lastExportRaw ? new Intl.DateTimeFormat("fa-IR", { dateStyle: "short", timeStyle: "short" }).format(new Date(lastExportRaw)) : null;
@@ -242,7 +257,9 @@ export default function ReportsPage() {
   const validateAndPreview = useCallback((json) => {
     const tables = json?.tables || json;
     if (!tables?.dayLogs || !Array.isArray(tables.dayLogs)) { setImportStatus("❌ NOT A MOHAMMADOS EXPORT"); return; }
-    const isMohammadOS = json?.app === "MohammadOS" || json?.version?.includes("mohammados");
+    const isMohammadOS = ["MohammadOS", "MohammadOS-PWA"].includes(json?.app)
+      || ["MohammadOS", "MohammadOS-PWA"].includes(json?.appName)
+      || json?.version?.toLowerCase?.().includes("mohammados");
     if (!isMohammadOS && !tables.dayLogs.every(d => d && typeof d.date === 'string' && Array.isArray(d.entries) && 'mood' in d)) { setImportStatus("❌ INVALID FILE STRUCTURE"); return; }
     const preview = {}; let totalRecords = 0;
     IMPORT_TABLES.forEach(t => { const r = Array.isArray(tables[t]) ? tables[t] : []; if (r.length > 0) { preview[t] = r.length; totalRecords += r.length; } });
@@ -277,15 +294,49 @@ export default function ReportsPage() {
     navigator.clipboard.writeText(text); setWeekCopied(true); if (timeoutRef.current) clearTimeout(timeoutRef.current); timeoutRef.current = setTimeout(() => setWeekCopied(false), 3000);
   }, [weekLogs, weekRange]);
 
+  const activePlannerPrompt = scheduleMode === "dated_plan" ? DATED_PLANNER_PROMPT : WEEKLY_PLANNER_PROMPT;
+  const activePlannerGuide = scheduleMode === "dated_plan" ? DATED_PLANNER_GUIDE_TEXT : WEEKLY_PLANNER_GUIDE_TEXT;
+  const schedulePreviewDays = Array.isArray(schedulePreview) ? schedulePreview : schedulePreview?.days || [];
+
   const handleCopyPrompt = async () => {
-    try { await navigator.clipboard.writeText(WEEKLY_PLANNER_PROMPT); setScheduleImportStatus("✅ پرامپت با موفقیت کپی شد!"); setTimeout(() => setScheduleImportStatus(""), 2000); } catch { setScheduleImportStatus("❌ کپی ناموفق - دستی کپی کنید"); }
+    try {
+      const rangeHint = scheduleMode === "dated_plan"
+        ? `\n\nبازه انتخابی من: از ${datedStartDate} تا ${datedEndDate}\n`
+        : "";
+      await navigator.clipboard.writeText(activePlannerPrompt + rangeHint);
+      setScheduleImportStatus("✅ پرامپت با موفقیت کپی شد!");
+      setTimeout(() => setScheduleImportStatus(""), 2000);
+    } catch {
+      setScheduleImportStatus("❌ کپی ناموفق - دستی کپی کنید");
+    }
   };
   const handleParseScheduleJson = () => {
-    try { const parsed = JSON.parse(scheduleJsonText); if (!Array.isArray(parsed)) throw new Error("باید آرایه باشد"); setSchedulePreview(parsed); setScheduleImportStatus(""); setAiGuideStep(3); } catch (e) { setScheduleImportStatus("❌ JSON نامعتبر: " + e.message); setSchedulePreview(null); }
+    try {
+      const parsed = JSON.parse(scheduleJsonText);
+      if (!Array.isArray(parsed) && (!parsed || !Array.isArray(parsed.days))) throw new Error("باید آرایه یا شیء دارای days باشد");
+      setSchedulePreview(parsed);
+      setScheduleImportStatus("");
+      setAiGuideStep(3);
+    } catch (e) {
+      setScheduleImportStatus("❌ JSON نامعتبر: " + e.message);
+      setSchedulePreview(null);
+    }
   };
   const handleImportSchedule = async () => {
     if (!schedulePreview) return; setScheduleImportLoading(true);
-    try { const result = await importWeeklySchedule(scheduleJsonText); setScheduleImportStatus(`✅ برنامه وارد شد! ${result.importedDays} روز، ${result.totalBlocks} بلوک زمانی`); setSchedulePreview(null); setScheduleJsonText(""); setAiGuideStep(1); } catch (e) { setScheduleImportStatus("❌ " + e.message); } finally { setScheduleImportLoading(false); }
+    try {
+      const parsed = JSON.parse(scheduleJsonText);
+      const isDated = scheduleMode === "dated_plan" || parsed?.scheduleMode === "dated_plan";
+      const result = isDated ? await importDatedSchedule(scheduleJsonText) : await importWeeklySchedule(scheduleJsonText);
+      setScheduleImportStatus(isDated
+        ? `✅ برنامه تاریخ‌محور وارد شد! ${result.days} روز، ${result.totalBlocks} بلوک`
+        : `✅ برنامه وارد شد! ${result.importedDays} روز، ${result.totalBlocks} بلوک زمانی`);
+      setSchedulePreview(null); setScheduleJsonText(""); setAiGuideStep(1);
+    } catch (e) {
+      setScheduleImportStatus("❌ " + e.message);
+    } finally {
+      setScheduleImportLoading(false);
+    }
   };
 
   const renderProductivityCurve = () => {
@@ -600,7 +651,7 @@ export default function ReportsPage() {
         <div id="panel-import" role="tabpanel" className="space-y-6">
           <div className="flex gap-2 p-1 bg-os-bg border border-os-border rounded-lg">
             <button onClick={() => setImportMode("backup")} className={`flex-1 py-2 text-xs font-mono rounded ${importMode === "backup" ? "bg-os-accent text-os-bg" : "text-os-text/60"}`}>📦 بکاپ کامل</button>
-            <button onClick={() => setImportMode("schedule")} className={`flex-1 py-2 text-xs font-mono rounded ${importMode === "schedule" ? "bg-os-accent text-os-bg" : "text-os-text/60"}`}>🤖 برنامهٔ هفتگی AI</button>
+            <button onClick={() => setImportMode("schedule")} className={`flex-1 py-2 text-xs font-mono rounded ${importMode === "schedule" ? "bg-os-accent text-os-bg" : "text-os-text/60"}`}>🤖 برنامه AI</button>
           </div>
 
           {importMode === "backup" && (
@@ -625,12 +676,25 @@ export default function ReportsPage() {
           {importMode === "schedule" && (
             <div className="space-y-4">
               <div className="bg-os-card border border-os-border rounded-lg p-4">
-                <h3 className="text-sm font-mono text-os-accent mb-3 text-left">[ ◈ ] AI WEEKLY SCHEDULE IMPORT</h3>
+                <h3 className="text-sm font-mono text-os-accent mb-3 text-left">[ ◈ ] AI SCHEDULE IMPORT</h3>
                 <div className="space-y-3">
+                  <div className="flex gap-2 p-1 bg-os-bg border border-os-border rounded-lg">
+                    <button onClick={() => setScheduleMode("weekly_template")} className={`flex-1 py-2 text-[10px] font-mono rounded ${scheduleMode === "weekly_template" ? "bg-os-accent text-os-bg" : "text-os-text/60"}`}>الگوی هفتگی</button>
+                    <button onClick={() => setScheduleMode("dated_plan")} className={`flex-1 py-2 text-[10px] font-mono rounded ${scheduleMode === "dated_plan" ? "bg-os-accent text-os-bg" : "text-os-text/60"}`}>برنامه تاریخ‌محور</button>
+                  </div>
+                  {scheduleMode === "dated_plan" && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="text-[10px] font-mono text-os-text/60">شروع<input type="date" value={datedStartDate} onChange={e => setDatedStartDate(e.target.value)} className="mt-1 w-full bg-os-bg border border-os-border rounded p-2 text-xs" /></label>
+                      <label className="text-[10px] font-mono text-os-text/60">پایان<input type="date" value={datedEndDate} onChange={e => setDatedEndDate(e.target.value)} className="mt-1 w-full bg-os-bg border border-os-border rounded p-2 text-xs" /></label>
+                      <div className="col-span-2 flex gap-2">
+                        {[7, 14, 30].map(days => <button key={days} onClick={() => setDatedEndDate(addDaysToDateKey(datedStartDate, days - 1))} className="flex-1 py-1.5 text-[10px] border border-os-border rounded hover:border-os-accent">{days} روز</button>)}
+                      </div>
+                    </div>
+                  )}
                   <div className={`p-3 rounded border ${aiGuideStep === 1 ? "border-os-accent bg-os-accent/5" : "border-os-border/50 bg-os-bg/30"}`}>
                     <div className="flex items-center gap-2 mb-2"><span className="text-xs font-mono text-os-accent">STEP 1</span></div>
                     <p className="text-xs text-os-text/70 mb-2">ابتدا پرامپت زیر را کپی کرده و به AI بده:</p>
-                    <div className="bg-os-bg border border-os-border rounded p-3 font-mono text-[10px] text-os-text/60 whitespace-pre-wrap max-h-32 overflow-y-auto mb-2">{WEEKLY_PLANNER_PROMPT.slice(0, 300)}...</div>
+                    <div className="bg-os-bg border border-os-border rounded p-3 font-mono text-[10px] text-os-text/60 whitespace-pre-wrap max-h-32 overflow-y-auto mb-2">{activePlannerPrompt.slice(0, 300)}...</div>
                     <button onClick={handleCopyPrompt} className="w-full py-2 bg-os-accent/10 border border-os-accent text-os-accent rounded text-xs font-mono hover:bg-os-accent hover:text-os-bg">📋 کپی پرامپت</button>
                   </div>
                   <div className={`p-3 rounded border ${aiGuideStep === 2 ? "border-os-accent bg-os-accent/5" : "border-os-border/50 bg-os-bg/30"}`}>
@@ -643,9 +707,9 @@ export default function ReportsPage() {
                     <div className="p-3 rounded border border-os-accent bg-os-accent/5">
                       <div className="flex items-center gap-2 mb-2"><span className="text-xs font-mono text-os-accent">STEP 3 — PREVIEW</span></div>
                       <div className="space-y-1 max-h-48 overflow-y-auto">
-                        {schedulePreview.map((day, idx) => (
+                        {schedulePreviewDays.map((day, idx) => (
                           <div key={idx} className="bg-os-bg border border-os-border rounded p-2">
-                            <p className="text-xs font-bold">{day.dayOfWeek || day.day || `روز ${idx + 1}`}</p>
+                            <p className="text-xs font-bold">{day.date || day.dayOfWeek || day.day || `روز ${idx + 1}`}</p>
                             <div className="space-y-0.5 mt-1">{(day.blocks || day.schedule || []).map((block, bIdx) => <p key={bIdx} className="text-[10px] font-mono text-os-text/60">{block.startTime || ""} — {block.endTime || ""} | {block.title || block.task || ""}</p>)}</div>
                           </div>
                         ))}
@@ -658,7 +722,7 @@ export default function ReportsPage() {
               </div>
               <div className="bg-os-card border border-os-border rounded-lg p-4">
                 <h3 className="text-sm font-mono text-os-accent mb-3 text-left">[ ◈ ] GUIDE</h3>
-                <div className="text-xs text-os-text/60 whitespace-pre-wrap leading-relaxed">{WEEKLY_PLANNER_GUIDE_TEXT}</div>
+                <div className="text-xs text-os-text/60 whitespace-pre-wrap leading-relaxed">{activePlannerGuide}</div>
               </div>
             </div>
           )}

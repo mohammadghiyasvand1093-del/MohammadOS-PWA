@@ -13,6 +13,14 @@ export const LIFE_WHEEL_DIMENSIONS = [
 
 const DIMENSION_IDS = LIFE_WHEEL_DIMENSIONS.map((dimension) => dimension.id);
 const AUTO_EMPTY_DIMENSIONS = new Set(["relationships", "recreation"]);
+const DOMAIN_TO_DIMENSION = Object.freeze({
+  learning: "learning",
+  fitness: "health",
+  discipline: "discipline",
+  work: "career",
+  rest: "recreation",
+  social: "relationships",
+});
 
 function normalizeSelfScore(value) {
   if (value === null || value === undefined) {
@@ -62,8 +70,8 @@ function calculateHabitDimensionScores(dayLogs = []) {
     entries.forEach((entry) => {
       if (entry?.category !== "habit") return;
 
-      const dimensionId = entry?.domain;
-      if (!dimensionId || !DIMENSION_IDS.includes(dimensionId)) return;
+      const dimensionId = DOMAIN_TO_DIMENSION[entry?.domain];
+      if (!dimensionId) return;
 
       const weight = entry.isCritical ? 2 : 1;
       const current = grouped.get(dimensionId) ?? {

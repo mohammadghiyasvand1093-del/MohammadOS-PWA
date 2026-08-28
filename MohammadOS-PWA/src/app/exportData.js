@@ -1,7 +1,7 @@
 // src/app/exportData.js
 import { db } from "../db/database";
 // ✅ FIX 4.3: Added todayKey, toPersianDate
-import { todayKey, toPersianDate } from "../utils/date";
+import { todayKey, toPersianDate, getLocalDateKey } from "../utils/date";
 
 function downloadFile(content, filename, type, addBOM = false) {
   const finalContent = addBOM
@@ -32,13 +32,19 @@ function downloadBlob(blob, filename) {
 // بچ ۷۲ — Data Compression (Export)
 // ═══════════════════════════════════════════
 async function compressGzip(text) {
+  if (typeof CompressionStream !== "function") {
+    return {
+      blob: new Blob([text], { type: "application/json;charset=utf-8" }),
+      extension: "json",
+    };
+  }
   const encoder = new TextEncoder();
   const stream = new CompressionStream("gzip");
   const writer = stream.writable.getWriter();
-  writer.write(encoder.encode(text));
-  writer.close();
+  await writer.write(encoder.encode(text));
+  await writer.close();
   const response = new Response(stream.readable);
-  return await response.blob();
+  return { blob: await response.blob(), extension: "json.gz" };
 }
 
 function getStartDate(range) {
@@ -50,7 +56,7 @@ function getStartDate(range) {
 }
 
 function getDateLimitStr(range) {
-  return getStartDate(range).toISOString().split("T")[0];
+  return getLocalDateKey(getStartDate(range));
 }
 
 function escapeCsv(value) {
@@ -191,6 +197,9 @@ export async function exportToJSON(range) {
 
     const data = {
       exportDate: new Date().toISOString(),
+      exportedAt: new Date().toISOString(),
+      schemaVersion: 2,
+      app: "MohammadOS-PWA",
       appName: "MohammadOS-PWA",
       range: range,
       habits,
@@ -206,8 +215,8 @@ export async function exportToJSON(range) {
     const jsonContent = JSON.stringify(data, null, 2);
     const compressed = await compressGzip(jsonContent);
     // ✅ FIX 4.2: Shamsi filename for JSON
-    const filename = `MohammadOS_Backup_${range}d_${toPersianDate(todayKey())}.json.gz`;
-    downloadBlob(compressed, filename);
+    const filename = `MohammadOS_Backup_${range}d_${toPersianDate(todayKey())}.${compressed.extension}`;
+    downloadBlob(compressed.blob, filename);
 
     // Batch 8.6: Save last export timestamp to localStorage
     localStorage.setItem("mohammados_last_export", new Date().toISOString());

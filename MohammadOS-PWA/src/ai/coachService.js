@@ -7,7 +7,7 @@
  */
 
 // ✅ FIX 3.9: Added toPersianDate
-import { toPersianDate } from "../utils/date";
+import { toPersianDate, getLocalDateKey } from "../utils/date";
 
 /* ──────────── Rule-based insights ──────────── */
 
@@ -26,7 +26,7 @@ function buildRuleBasedInsights(vitals = {}, weeklyStats = {}, domainTrend = [],
 
   // 🟢 Batch 59: Check Roadmap Constraints Locally
   if (roadmapStatus && Array.isArray(roadmapStatus.gates)) {
-    const todayStr = new Date().toISOString().split("T")[0];
+    const todayStr = getLocalDateKey(new Date());
     const overdueGates = roadmapStatus.gates.filter(g => g.deadline && g.deadline < todayStr && g.progress < 100);
     if (overdueGates.length > 0) {
       insights.push({
@@ -356,5 +356,5 @@ export async function runMonthlyReview(monthLogs, roadmapStatus) {
 }
 
 export function isAvalAIConfigured() {
-  return true; // Proxy handles configuration server-side
+  return import.meta.env.VITE_AI_PROXY_ENABLED === "true";
 }

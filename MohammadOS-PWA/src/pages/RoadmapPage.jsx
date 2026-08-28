@@ -6,7 +6,7 @@ import CoachReportModal from "../components/CoachReportModal";
 import { runMonthlyReview } from "../ai/coachService";
 import { ImportService } from "../app/ImportService";
 // ✅ FIX 3.7: Added toPersianDate
-import { toPersianNumber, toPersianDate } from "../utils/date";
+import { toPersianNumber, toPersianDate, getLocalDateKey } from "../utils/date";
 import RoadmapStatsPanel from "../components/RoadmapStatsPanel";
 import RoadmapGateCard from "../components/RoadmapGateCard";
 import RoadmapImportWizard from "../components/RoadmapImportWizard";
@@ -253,7 +253,7 @@ export default function RoadmapPage() {
     const blob = new Blob([jsonStr], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = `mohammados-roadmap-${new Date().toISOString().split("T")[0]}.json`;
+    a.href = url; a.download = `mohammados-roadmap-${getLocalDateKey(new Date())}.json`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
   };
 
@@ -290,7 +290,7 @@ export default function RoadmapPage() {
     const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = `mohammados-roadmap-${new Date().toISOString().split("T")[0]}.md`;
+    a.href = url; a.download = `mohammados-roadmap-${getLocalDateKey(new Date())}.md`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
   };
 
@@ -345,7 +345,7 @@ export default function RoadmapPage() {
 
   const roadmapStats = useMemo(() => {
     let completedGates = 0, inProgressGates = 0, lockedGates = 0, overdueGates = 0, totalCriteria = 0, doneCriteria = 0;
-    const todayStr = new Date().toISOString().split("T")[0];
+    const todayStr = getLocalDateKey(new Date());
     gates.forEach((g) => {
       const total = g.criteria?.length || 0;
       const done = g.criteria?.filter((c) => c.done).length || 0;

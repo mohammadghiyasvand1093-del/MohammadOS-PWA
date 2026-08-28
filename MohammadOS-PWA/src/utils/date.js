@@ -130,7 +130,7 @@ export function getPersianWeekKey(date = new Date()) {
 
   const jan1 = new Date(saturday.getFullYear(), 0, 1);
   const jan1Day = jan1.getDay();
-  const daysFromJan1ToFirstSat = (6 - jan1Day + 7) % 7 || 7;
+  const daysFromJan1ToFirstSat = (6 - jan1Day + 7) % 7;
   const firstSaturday = new Date(saturday.getFullYear(), 0, 1 + daysFromJan1ToFirstSat);
 
   let weekNo;
@@ -138,7 +138,7 @@ export function getPersianWeekKey(date = new Date()) {
     // Belongs to last week of previous year
     const prevFirstSat = new Date(saturday.getFullYear() - 1, 0, 1);
     const prevJan1Day = prevFirstSat.getDay();
-    const prevDaysFromJan1ToFirstSat = (6 - prevJan1Day + 7) % 7 || 7;
+    const prevDaysFromJan1ToFirstSat = (6 - prevJan1Day + 7) % 7;
     const prevYearFirstSat = new Date(saturday.getFullYear() - 1, 0, 1 + prevDaysFromJan1ToFirstSat);
     const diffDays = Math.floor((saturday - prevYearFirstSat) / 86400000);
     weekNo = Math.floor(diffDays / 7) + 1;
@@ -166,7 +166,7 @@ export function getPersianWeekRange(periodKey) {
   // Find the first Saturday of the year
   const jan1 = new Date(year, 0, 1);
   const jan1Day = jan1.getDay();
-  const daysFromJan1ToFirstSat = (6 - jan1Day + 7) % 7 || 7;
+  const daysFromJan1ToFirstSat = (6 - jan1Day + 7) % 7;
   const firstSaturday = new Date(year, 0, 1 + daysFromJan1ToFirstSat);
 
   const targetSaturday = new Date(firstSaturday);
