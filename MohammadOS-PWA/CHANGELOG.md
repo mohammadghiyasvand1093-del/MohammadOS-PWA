@@ -1,4 +1,9 @@
 Changelog
+[2.1.0] — 2026-08-28
+🔄 انتشار
+اعلان کوتاه پس از به‌روزرسانی خودکار PWA
+نمایش نسخه فعال و زمان فعال‌شدن روی دستگاه
+
 [2.0.0] — 2026-08-14
 🚀 Major Features
 📈 Analytics Dashboard (Productivity Curve, Mood Donut, Domain Radar)

@@ -10,6 +10,8 @@ import { useOnboarding } from "./hooks/useOnboarding";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useSwipeNavigation } from "./hooks/useSwipeNavigation";
+import { useRegisterSW } from "virtual:pwa-register/react";
+import { RELEASE_INFO, RELEASE_STORAGE_KEYS } from "./constants/release";
 
 const TodayPage = lazy(() => import("./pages/TodayPage"));
 const SchedulePage = lazy(() => import("./pages/SchedulePage"));
@@ -18,6 +20,31 @@ const ReportsPage = lazy(() => import("./pages/ReportsPage"));
 const AddPage = lazy(() => import("./pages/AddPage"));
 const StatusPage = lazy(() => import("./pages/StatusPage"));
 const RoadmapPage = lazy(() => import("./pages/RoadmapPage"));
+
+function readReleaseNotification() {
+  const activeVersion = localStorage.getItem(RELEASE_STORAGE_KEYS.activeVersion);
+  const pendingUpdateRaw = localStorage.getItem(RELEASE_STORAGE_KEYS.pendingUpdate);
+  let pendingUpdate = null;
+  if (pendingUpdateRaw) {
+    try {
+      pendingUpdate = JSON.parse(pendingUpdateRaw);
+    } catch {
+      // A malformed marker must not prevent the app from loading.
+    }
+  }
+
+  const notification = activeVersion && activeVersion !== RELEASE_INFO.version
+    ? {
+        version: RELEASE_INFO.version,
+        activatedAt: pendingUpdate?.detectedAt || new Date().toISOString(),
+        summary: RELEASE_INFO.summary,
+      }
+    : null;
+
+  localStorage.setItem(RELEASE_STORAGE_KEYS.activeVersion, RELEASE_INFO.version);
+  localStorage.removeItem(RELEASE_STORAGE_KEYS.pendingUpdate);
+  return notification;
+}
 
 function PageLoader() {
   return (
@@ -38,9 +65,24 @@ function AppLayout() {
   const [backupLoading, setBackupLoading] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [notifData, setNotifData] = useState(null);
+  const [releaseNotification, setReleaseNotification] = useState(readReleaseNotification);
   
   const mainRef = useRef(null);
   const notifRef = useRef(null);
+
+  useRegisterSW({
+    immediate: true,
+    onNeedReload: () => {
+      localStorage.setItem(
+        RELEASE_STORAGE_KEYS.pendingUpdate,
+        JSON.stringify({ detectedAt: new Date().toISOString() })
+      );
+      window.location.reload();
+    },
+    onRegisterError: (error) => {
+      console.warn("PWA update registration failed:", error);
+    },
+  });
 
   const { showOnboarding, onboardingStep, setOnboardingStep, handleFinishOnboarding } = useOnboarding();
   const isOnline = useOnlineStatus();
@@ -148,15 +190,30 @@ function AppLayout() {
   const notifications = useMemo(() => {
     if (!notifData) return [];
     const notifs = [];
+    if (releaseNotification) {
+      const activatedAt = new Intl.DateTimeFormat("fa-IR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(releaseNotification.activatedAt));
+      notifs.push({
+        id: `release-${releaseNotification.version}`,
+        icon: "✅",
+        title: `نسخه ${releaseNotification.version} به‌روزرسانی شد`,
+        desc: `در ساعت ${activatedAt} فعال شد — ${releaseNotification.summary[0]}`,
+        type: "success",
+        action: () => setReleaseNotification(null),
+        actionLabel: "متوجه شدم",
+      });
+    }
     if (notifData.daysSinceBackup === Infinity) notifs.push({ id: "backup_none", icon: "📦", title: "بکاپ گرفته نشده", desc: "هنوز هیچ بکاپی از داده‌ها ندارید.", type: "critical", action: handleQuickBackup, actionLabel: "بکاپ فوری" });
     else if (notifData.daysSinceBackup >= 7) notifs.push({ id: "backup_stale", icon: "⚠️", title: "بکاپ قدیمی", desc: `${notifData.daysSinceBackup} روز از آخرین بکاپ می‌گذرد.`, type: "warning", action: handleQuickBackup, actionLabel: "بکاپ فوری" });
     if (notifData.streak > 0) notifs.push({ id: "streak", icon: "🔥", title: `استریک ${notifData.streak} روزه`, desc: notifData.todayRate < 50 && !notifData.hasActiveTimer ? "امروز در خطر قطع است!" : "در حال حفظ استریک هستی.", type: notifData.todayRate < 50 && !notifData.hasActiveTimer ? "warning" : "info" });
     if (notifData.graceUsed >= 2) notifs.push({ id: "grace", icon: "❄️", title: `Grace Days: ${notifData.graceUsed}/2`, desc: "سقف ماهانه پر شده است.", type: "warning" });
     if (notifData.hasActiveTimer) notifs.push({ id: "timer", icon: "⏱️", title: "تایمر فعال است", desc: "در حال اجرای ماموریت هستی.", type: "info" });
     return notifs;
-  }, [notifData, handleQuickBackup]);
+  }, [notifData, handleQuickBackup, releaseNotification]);
 
-  const hasUnread = notifications.some(n => n.type === "critical" || n.type === "warning");
+  const hasUnread = notifications.some(n => n.type === "critical" || n.type === "warning" || n.type === "success");
 
   const getPageTitle = () => {
     switch (location.pathname) {
@@ -297,7 +354,7 @@ function AppLayout() {
                         <div key={n.id} className="p-3 flex items-start gap-3 hover:bg-os-bg/30 transition">
                           <span className="text-lg shrink-0">{n.icon}</span>
                           <div className="flex-1 min-w-0">
-                            <div className={`text-xs font-bold ${n.type === 'critical' ? 'text-red-400' : n.type === 'warning' ? 'text-amber-400' : 'text-os-text'}`}>{n.title}</div>
+                            <div className={`text-xs font-bold ${n.type === 'critical' ? 'text-red-400' : n.type === 'warning' ? 'text-amber-400' : n.type === 'success' ? 'text-emerald-400' : 'text-os-text'}`}>{n.title}</div>
                             <div className="text-[10px] text-os-text/50 mt-0.5">{n.desc}</div>
                             {n.action && (
                               <button onClick={() => { n.action(); setIsNotifOpen(false); }} disabled={backupLoading} className="mt-2 text-[10px] font-mono bg-os-accent/10 text-os-accent border border-os-accent/30 px-2 py-1 rounded hover:bg-os-accent/20 transition disabled:opacity-50">
@@ -312,7 +369,7 @@ function AppLayout() {
                 </div>
               )}
             </div>
-            <span className="text-[9px] font-mono text-os-accent bg-os-accent/10 px-2 py-0.5 rounded border border-os-accent/20">KERNEL_v1.1</span>
+            <span className="text-[9px] font-mono text-os-accent bg-os-accent/10 px-2 py-0.5 rounded border border-os-accent/20">v{RELEASE_INFO.version}</span>
           </div>
         </header>
 
@@ -339,6 +396,30 @@ function AppLayout() {
           <div className="mx-4 mt-2 md:mx-8 md:mt-3 bg-red-500/10 border border-red-500/30 rounded-lg p-2 flex items-center justify-center gap-2 shrink-0 animate-fade-in">
             <span className="text-red-400 text-sm" aria-hidden="true">📡❌</span>
             <span className="text-xs text-red-400 font-mono">اتصال اینترنت قطع است — داده‌ها به‌صورت محلی ذخیره می‌شوند</span>
+          </div>
+        )}
+
+        {releaseNotification && (
+          <div
+            className="mx-4 mt-2 md:mx-8 md:mt-3 bg-emerald-500/10 border border-emerald-500/40 rounded-lg p-3 flex items-center justify-between gap-3 shrink-0 animate-fade-in"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="min-w-0">
+              <p className="text-xs text-emerald-400 font-bold">
+                ✅ نسخه {releaseNotification.version} به‌روزرسانی شد
+              </p>
+              <p className="text-[10px] text-os-text/60 font-mono mt-1">
+                در ساعت {new Intl.DateTimeFormat("fa-IR", { hour: "2-digit", minute: "2-digit" }).format(new Date(releaseNotification.activatedAt))} فعال شد — {releaseNotification.summary[0]}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReleaseNotification(null)}
+              className="shrink-0 text-[10px] font-mono text-emerald-400 border border-emerald-500/40 rounded px-2 py-1 hover:bg-emerald-500/10"
+            >
+              فهمیدم
+            </button>
           </div>
         )}
 
