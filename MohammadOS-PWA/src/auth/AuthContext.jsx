@@ -23,7 +23,14 @@ export function AuthProvider({ children }) {
     setProfileLoading(true);
     const { profile: nextProfile, error } = await ProfileService.getCurrentProfile(nextSession.user.id);
     setProfile(nextProfile);
-    setProfileError(error?.message || (!nextProfile ? "پروفایل این حساب در Supabase ثبت نشده است." : null));
+    setProfileError(
+      error?.message
+      || (!nextProfile
+        ? "پروفایل این حساب در Supabase ثبت نشده است."
+        : !nextProfile.is_active
+          ? "این حساب توسط مالک غیرفعال شده است."
+          : null)
+    );
     setProfileLoading(false);
   }
 
@@ -60,7 +67,7 @@ export function AuthProvider({ children }) {
     session,
     user: session?.user || null,
     profile,
-    role: profile?.role || null,
+    role: profile?.is_active ? profile.role : null,
     loading,
     profileLoading,
     profileError,
