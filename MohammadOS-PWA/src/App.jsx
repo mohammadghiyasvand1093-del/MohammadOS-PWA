@@ -74,17 +74,6 @@ function AccountState({ title, description, onSignOut }) {
   );
 }
 
-function GuestAccessGuard() {
-  const { signOut } = useAuth();
-  return (
-    <AccountState
-      title="حساب مهمان فعال است"
-      description="فضای مستقل مهمان هنوز در حال آماده‌سازی است. برای جلوگیری از نمایش اطلاعات مالک، دسترسی به داشبورد فعلاً بسته است."
-      onSignOut={signOut}
-    />
-  );
-}
-
 function AuthenticatedAppLayout() {
   const { user, role, signOut } = useAuth();
   const navigate = useNavigate();
@@ -256,8 +245,6 @@ function AuthenticatedAppLayout() {
       default: return "MohammadOS";
     }
   };
-
-  if (role === "guest") return <GuestAccessGuard />;
 
   return (
     <div className="flex h-screen w-full bg-os-bg text-os-text font-vazir rtl select-none overflow-hidden">
