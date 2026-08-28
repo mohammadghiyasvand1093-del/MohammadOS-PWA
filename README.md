@@ -1,4 +1,4 @@
-تغییرات: بازنویسی کامل از پایه. تبدیل از یک متن یک‌خطی به یک سند حرفه‌ای شامل معرفی، معماری، تکنولوژی‌ها و راهنمای اجرا. (این فایل دقیقاً چیزی است که یک ریکروتر می‌خواهد ببیند).
+
 
 MohammadOS-PWA 🛡️
 A privacy-first, offline-capable Progressive Web App (PWA) designed as a Personal Operating System for habit tracking, time management, and analytical self-reflection.
