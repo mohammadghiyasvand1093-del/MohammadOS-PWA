@@ -2,8 +2,22 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { AuthService } from "./AuthService";
 import { ProfileService } from "./ProfileService";
 import { isSupabaseConfigured } from "./supabaseClient";
+import { ACTIVE_ACCOUNT_STORAGE_KEY, migrateLegacyDataToUser } from "../db/database";
 
 const AuthContext = createContext(null);
+
+function getActiveAccountId() {
+  return localStorage.getItem(ACTIVE_ACCOUNT_STORAGE_KEY);
+}
+
+function switchActiveAccount(nextSession) {
+  const nextId = nextSession?.user?.id || null;
+  const currentId = getActiveAccountId();
+  if (currentId === nextId) return false;
+  if (nextId) localStorage.setItem(ACTIVE_ACCOUNT_STORAGE_KEY, nextId);
+  else localStorage.removeItem(ACTIVE_ACCOUNT_STORAGE_KEY);
+  return true;
+}
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
@@ -31,6 +45,9 @@ export function AuthProvider({ children }) {
           ? "این حساب توسط مالک غیرفعال شده است."
           : null)
     );
+    if (nextProfile?.is_active) {
+      await migrateLegacyDataToUser(nextSession.user.id, nextProfile.role);
+    }
     setProfileLoading(false);
   }
 
@@ -41,6 +58,10 @@ export function AuthProvider({ children }) {
     AuthService.getSession().then(async ({ data }) => {
       if (mounted) {
         const nextSession = data?.session || null;
+        if (switchActiveAccount(nextSession)) {
+          window.location.reload();
+          return;
+        }
         setSession(nextSession);
         await loadProfile(nextSession);
         setLoading(false);
@@ -51,6 +72,10 @@ export function AuthProvider({ children }) {
 
     const authState = AuthService.onAuthStateChange((_event, nextSession) => {
       if (mounted) {
+        if (switchActiveAccount(nextSession)) {
+          window.location.reload();
+          return;
+        }
         setSession(nextSession);
         void loadProfile(nextSession);
       }
@@ -73,7 +98,11 @@ export function AuthProvider({ children }) {
     profileError,
     isConfigured: isSupabaseConfigured,
     signIn: AuthService.signIn,
-    signOut: AuthService.signOut,
+    signOut: async () => {
+      await AuthService.signOut();
+      switchActiveAccount(null);
+      window.location.reload();
+    },
   }), [session, profile, loading, profileLoading, profileError]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

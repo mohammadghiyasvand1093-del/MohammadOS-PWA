@@ -2,7 +2,65 @@
 import Dexie from "dexie";
 import { getHierarchyFields } from "../utils/date";
 
-export const db = new Dexie("MohammadOS");
+export const ACTIVE_ACCOUNT_STORAGE_KEY = "mohammados_active_account";
+const LEGACY_DATABASE_NAME = "MohammadOS";
+const activeAccountId = typeof localStorage !== "undefined"
+  ? localStorage.getItem(ACTIVE_ACCOUNT_STORAGE_KEY)
+  : null;
+const databaseName = activeAccountId
+  ? `${LEGACY_DATABASE_NAME}-${activeAccountId}`
+  : LEGACY_DATABASE_NAME;
+
+export const db = new Dexie(databaseName);
+
+function readLegacyTable(tableName) {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(LEGACY_DATABASE_NAME);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const legacyDb = request.result;
+      if (!legacyDb.objectStoreNames.contains(tableName)) {
+        legacyDb.close();
+        resolve([]);
+        return;
+      }
+      const transaction = legacyDb.transaction(tableName, "readonly");
+      const getRequest = transaction.objectStore(tableName).getAll();
+      getRequest.onsuccess = () => {
+        legacyDb.close();
+        resolve(getRequest.result || []);
+      };
+      getRequest.onerror = () => {
+        legacyDb.close();
+        reject(getRequest.error);
+      };
+    };
+  });
+}
+
+/**
+ * Move the pre-auth local data into the authenticated owner's private
+ * database exactly once. Guest accounts deliberately skip this migration.
+ */
+export async function migrateLegacyDataToUser(userId, role) {
+  if (!userId || role !== "owner" || databaseName === LEGACY_DATABASE_NAME) return false;
+
+  const marker = `mohammados_legacy_migrated_${userId}`;
+  if (localStorage.getItem(marker) === "true") return false;
+
+  try {
+    await db.open();
+    for (const table of db.tables) {
+      const rows = await readLegacyTable(table.name);
+      if (rows.length > 0) await table.bulkPut(rows);
+    }
+    localStorage.setItem(marker, "true");
+    return true;
+  } catch (error) {
+    console.error("Legacy data migration failed:", error);
+    throw new Error("انتقال امن اطلاعات قبلی انجام نشد. لطفاً دوباره تلاش کنید.", { cause: error });
+  }
+}
 
 /**
  * اصل مهم:
