@@ -15,6 +15,8 @@ export default defineConfig(({ command }) => ({
         id: '/', // ✅ Nazer 3 Fix: Added id for desktop install
         name: 'MohammadOS',
         short_name: 'MohammadOS',
+        lang: 'fa',
+        dir: 'rtl',
         description: 'System Kernel v1.1 - Personal Operating System',
         theme_color: '#0B0F14',
         background_color: '#0B0F14',

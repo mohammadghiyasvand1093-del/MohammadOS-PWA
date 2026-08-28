@@ -1,7 +1,7 @@
 {
   "name": "mohammados-pwa",
   "private": true,
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Personal Operating System — A privacy-first, offline-capable PWA for habit tracking and life management.",
   "type": "module",
   "author": "Mohammad Ghiyasvand",
