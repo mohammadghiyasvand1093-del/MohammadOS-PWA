@@ -359,6 +359,27 @@ function AuthenticatedAppLayout() {
           ))}
         </nav>
         <div className={`transition-all duration-300 ${collapsed ? "opacity-0 hidden" : "opacity-100"}`}><SidebarWidgets /></div>
+        <div className={`mt-4 border-t border-os-border pt-4 ${collapsed ? "flex flex-col items-center gap-2" : ""}`}>
+          {!collapsed && (
+            <div className="mb-2 min-w-0 text-center">
+              <p className="truncate text-[10px] font-bold text-os-text/70" title={user.email}>
+                {role === "owner" ? "مالک" : "مهمان"}
+              </p>
+              <p className="truncate text-[9px] text-os-text/40" dir="ltr" title={user.email}>
+                {user.email}
+              </p>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => signOut()}
+            className={`rounded-lg border border-red-500/40 text-red-300 transition hover:bg-red-500/10 ${collapsed ? "h-10 w-10 text-lg" : "w-full px-3 py-2 text-xs"}`}
+            aria-label="خروج از حساب"
+            title={collapsed ? "خروج از حساب" : undefined}
+          >
+            {collapsed ? "↪" : "خروج از حساب"}
+          </button>
+        </div>
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0 bg-os-bg/95 relative overflow-hidden">
