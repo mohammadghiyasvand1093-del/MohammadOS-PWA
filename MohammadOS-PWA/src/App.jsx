@@ -12,6 +12,8 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useSwipeNavigation } from "./hooks/useSwipeNavigation";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { RELEASE_INFO, RELEASE_STORAGE_KEYS } from "./constants/release";
+import { useAuth } from "./auth/AuthContext";
+import LoginPage from "./auth/LoginPage";
 
 const TodayPage = lazy(() => import("./pages/TodayPage"));
 const SchedulePage = lazy(() => import("./pages/SchedulePage"));
@@ -57,7 +59,8 @@ function PageLoader() {
   );
 }
 
-function AppLayout() {
+function AuthenticatedAppLayout() {
+  const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
@@ -337,6 +340,14 @@ function AppLayout() {
             <h2 className="text-xs font-black text-os-text">{getPageTitle()}</h2>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => signOut()}
+              className="text-[10px] text-os-text/50 hover:text-red-300"
+              title={user.email}
+            >
+              خروج
+            </button>
             <div className="relative" ref={notifRef}>
               <button onClick={() => setIsNotifOpen(!isNotifOpen)} className="relative p-1 text-os-text/60 hover:text-os-accent transition" aria-label="مرکز نوتیفیکیشن" aria-expanded={isNotifOpen}>
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
@@ -470,6 +481,20 @@ function AppLayout() {
       </div>
     </div>
   );
+}
+
+function AppLayout() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <main className="min-h-screen w-full flex items-center justify-center bg-os-bg text-os-text" dir="rtl">
+        <div className="text-sm text-os-text/60" role="status" aria-live="polite">در حال بررسی نشست حساب...</div>
+      </main>
+    );
+  }
+
+  return user ? <AuthenticatedAppLayout /> : <LoginPage />;
 }
 
 export default function App() {

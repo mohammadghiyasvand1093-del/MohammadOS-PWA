@@ -6,7 +6,14 @@
   "type": "module",
   "author": "Mohammad Ghiyasvand",
   "license": "MIT",
-  "keywords": ["pwa", "react", "dexie", "offline-first", "personal-os", "habit-tracker"],
+  "keywords": [
+    "pwa",
+    "react",
+    "dexie",
+    "offline-first",
+    "personal-os",
+    "habit-tracker"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -16,6 +23,7 @@
     "format": "prettier --write \"src/**/*.{js,jsx,css}\""
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.109.0",
     "dexie": "^4.4.4",
     "react": "^19.2.7",
     "react-activity-calendar": "^3.2.0",
