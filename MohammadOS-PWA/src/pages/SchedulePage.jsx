@@ -61,16 +61,29 @@ export default function SchedulePage() {
   const [selectedIndex, setSelectedIndex] = useState(todayIdxSatStart);
   const [weekOffset, setWeekOffset] = useState(0);
 
-  const weekDates = useMemo(() => getWeekDates(new Date(nowMs()), weekOffset), [weekOffset]);
+  const weekDates = useMemo(() => getWeekDates(currentTime, weekOffset), [currentTime, weekOffset]);
   const selectedDateKey = weekDates[selectedIndex];
   const selectedDayEn = dayNamesEn[satToSunMap[selectedIndex]];
   const selectedDayFa = dayNamesFa[satToSunMap[selectedIndex]];
   const isTodaySelected = selectedDateKey === todayDateKey;
 
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date(nowMs())), 30000);
+    const timer = setInterval(() => {
+      const nextTime = new Date(nowMs());
+      setCurrentTime((previousTime) => {
+        const previousDateKey = `${previousTime.getFullYear()}-${String(previousTime.getMonth() + 1).padStart(2, "0")}-${String(previousTime.getDate()).padStart(2, "0")}`;
+        const nextDateKey = `${nextTime.getFullYear()}-${String(nextTime.getMonth() + 1).padStart(2, "0")}-${String(nextTime.getDate()).padStart(2, "0")}`;
+
+        if (weekOffset === 0 && previousDateKey !== nextDateKey) {
+          const nextDay = nextTime.getDay();
+          setSelectedIndex(nextDay === 6 ? 0 : nextDay + 1);
+        }
+
+        return nextTime;
+      });
+    }, 30000);
     return () => clearInterval(timer);
-  }, []);
+  }, [weekOffset]);
 
   useEffect(() => {
     async function loadSelectedSchedule() {

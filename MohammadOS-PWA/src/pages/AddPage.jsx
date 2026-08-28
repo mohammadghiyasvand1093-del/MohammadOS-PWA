@@ -5,6 +5,7 @@ import { CourseRepository } from "../repositories/CourseRepository";
 import { HabitRepository } from "../repositories/HabitRepository";
 import { saveHabit } from "../app/saveHabit";
 import { db } from "../db/database";
+import { getTodayEn } from "../utils/date";
 import debounce from "lodash.debounce";
 
 const initialCourseState = {
@@ -65,7 +66,7 @@ const days = [
 ];
 
 export default function AddPage() {
-  const [selectedDay, setSelectedDay] = useState("sunday");
+  const [selectedDay, setSelectedDay] = useState(() => getTodayEn());
   const [blocks, setBlocks] = useState([]);
   const [draftStatus, setDraftStatus] = useState("");
 

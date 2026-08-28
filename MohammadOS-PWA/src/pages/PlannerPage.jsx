@@ -44,6 +44,7 @@ export default function PlannerPage() {
   const [advisorJson, setAdvisorJson] = useState("");
   const [advisorMsg, setAdvisorMsg] = useState(null);
   const [formError, setFormError] = useState("");
+  const [clockMs, setClockMs] = useState(() => nowMs());
   
   const [form, setForm] = useState({
     title: "",
@@ -56,14 +57,19 @@ export default function PlannerPage() {
   });
 
   const weekDates = useMemo(() => {
-    const reference = new Date(nowMs());
+    const reference = new Date(clockMs);
     reference.setDate(reference.getDate() + weekOffset * 7);
     return getPersianWeekDates(reference);
-  }, [weekOffset]);
+  }, [clockMs, weekOffset]);
   const todayDateKey = (() => {
-    const d = new Date(nowMs());
+    const d = new Date(clockMs);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   })();
+
+  useEffect(() => {
+    const timer = setInterval(() => setClockMs(nowMs()), 30000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     loadEvents();
@@ -146,7 +152,8 @@ export default function PlannerPage() {
     if (!existing?.schedule) return;
     const updated = existing.schedule.filter((b, index) => {
       if (eventId) return b.id !== eventId;
-      return !(index === blockIndex || (b.title === title && b.type === "event"));
+      if (Number.isInteger(blockIndex)) return index !== blockIndex;
+      return !(b.title === title && b.type === "event");
     });
     if (updated.length === 0) {
       await ScheduleRepository.delete(existing.id);

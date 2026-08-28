@@ -21,7 +21,6 @@ export default defineConfig(({ command }) => ({
         display: 'standalone',
         start_url: '/',
         scope: '/',
-        rtl: true,
         // Batch 39: Updated icons array for Android/iOS compatibility
         icons: [
           {

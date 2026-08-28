@@ -43,9 +43,15 @@ export default function StatusPage() {
   const [recalibrating, setRecalibrating] = useState(false);
 
   const toastTimeoutRef = useRef(null);
+  const [clockMs, setClockMs] = useState(() => nowMs());
 
-  const todayKey = useMemo(() => getLocalDateKey(new Date(nowMs())), []);
-  const currentPeriodKey = useMemo(() => getPersianWeekKey(new Date(nowMs())), []);
+  const todayKey = useMemo(() => getLocalDateKey(new Date(clockMs)), [clockMs]);
+  const currentPeriodKey = useMemo(() => getPersianWeekKey(new Date(clockMs)), [clockMs]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setClockMs(nowMs()), 30000);
+    return () => clearInterval(timer);
+  }, []);
 
   const showToast = useCallback((message) => {
     setToastMessage(message);
@@ -175,7 +181,7 @@ export default function StatusPage() {
     return () => {
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [refreshAll]);
+  }, [refreshAll, todayKey]);
 
   const handleRecalibrate = useCallback(async () => {
     if (

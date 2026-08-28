@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { GateRepository } from "../repositories/GateRepository";
 import { ScheduleRepository } from "../repositories/ScheduleRepository";
-import { ImportService } from "../app/ImportService";
+import { ImportService, IMPORT_TABLES } from "../app/ImportService";
 import { AggregationService } from "../service/aggregationService";
 import { exportToJSON, exportToCSV } from "../app/exportData";
 import {
@@ -25,7 +25,6 @@ const DOMAINS = [
 const MOOD_LABELS = { 1: "😫 خیلی بد", 2: "😕 بد", 3: "😐 معمولی", 4: "🙂 خوب", 5: "😄 عالی" };
 const HEATMAP_LEVELS = ["bg-os-border/20", "bg-emerald-500/30", "bg-emerald-500/50", "bg-emerald-500/70", "bg-emerald-500"];
 const DOMAIN_COLORS = { learning: "#3B82F6", fitness: "#10B981", discipline: "#F59E0B", work: "#8B5CF6", rest: "#64748B", social: "#EC4899" };
-const IMPORT_TABLES = ["dayLogs", "habits", "courses", "gates", "schedules", "courseSessions", "fixedEvents", "activeTimer", "drafts", "lifeWheelScores"];
 
 function addDaysToDateKey(dateKey, amount) {
   const [y, m, d] = dateKey.split("-").map(Number);

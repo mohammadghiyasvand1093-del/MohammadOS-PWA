@@ -4,7 +4,7 @@ import { ScheduleRepository } from "../repositories/ScheduleRepository";
 import { getDateRangeInclusive, isDateKey, SCHEDULE_MODES } from "../utils/schedule";
 
 // ✅ Nazer 2 Fix: Corrected table names to match database.js schema
-const IMPORT_TABLES = [
+export const IMPORT_TABLES = [
   "dayLogs", "habits", "courses", "gates", "schedules",
   "courseSessions", "fixedEvents", "activeTimer", "drafts", "lifeWheelScores"
 ];
@@ -70,11 +70,13 @@ export const ImportService = {
     const isGz = file.name.toLowerCase().endsWith(".gz");
 
     if (isGz) {
+      if (typeof DecompressionStream !== "function") {
+        throw new Error("GZIP_UNSUPPORTED: مرورگر شما باز کردن فایل فشرده را پشتیبانی نمی‌کند.");
+      }
       try {
         text = await decompressGzip(file);
-      } catch {
-        console.warn("Gzip decompression failed, falling back to plain text.");
-        text = await file.text();
+      } catch (error) {
+        throw new Error("GZIP_DECOMPRESSION_FAILED: فایل فشرده خراب یا نامعتبر است.", { cause: error });
       }
     } else {
       text = await file.text();
