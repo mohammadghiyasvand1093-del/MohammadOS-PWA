@@ -15,6 +15,8 @@ import { RELEASE_INFO, RELEASE_STORAGE_KEYS } from "./constants/release";
 import { useAuth } from "./auth/AuthContext";
 import { ProfileService } from "./auth/ProfileService";
 import LoginPage from "./auth/LoginPage";
+import HelpModal from "./components/HelpModal";
+import { DEFAULT_HELP_CONTENT, HELP_CONTENT } from "./content/helpContent";
 
 const TodayPage = lazy(() => import("./pages/TodayPage"));
 const SchedulePage = lazy(() => import("./pages/SchedulePage"));
@@ -135,6 +137,7 @@ function AuthenticatedAppLayout() {
   const [backupStale, setBackupStale] = useState(false);
   const [backupLoading, setBackupLoading] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [notifData, setNotifData] = useState(null);
   const [releaseNotification, setReleaseNotification] = useState(readReleaseNotification);
   
@@ -157,6 +160,7 @@ function AuthenticatedAppLayout() {
 
   const { showOnboarding, onboardingStep, setOnboardingStep, handleFinishOnboarding } = useOnboarding(user?.id);
   const isOnline = useOnlineStatus();
+  const helpContent = HELP_CONTENT[location.pathname] || DEFAULT_HELP_CONTENT;
 
   const navigateWithTransition = useCallback((path) => {
     if (document.startViewTransition) {
@@ -337,6 +341,13 @@ function AuthenticatedAppLayout() {
                   <li className="flex items-center gap-2"><span className="text-os-accent font-bold">۳.</span> حال روز (Mood) خود را ثبت کن.</li>
                   <li className="flex items-center gap-2"><span className="text-os-accent font-bold">۴.</span> در پایان روز، گزارش را برای مشاور کپی کن.</li>
                 </ul>
+                <button
+                  type="button"
+                  onClick={() => setIsHelpOpen(true)}
+                  className="mt-2 w-full rounded-lg border border-os-accent/50 px-3 py-2 text-xs font-bold text-os-accent hover:bg-os-accent/10"
+                >
+                  راهنمای کامل همهٔ بخش‌ها
+                </button>
               </div>
             )}
             {onboardingStep === 3 && (
@@ -358,6 +369,7 @@ function AuthenticatedAppLayout() {
           </div>
         </div>
       )}
+      {isHelpOpen && <HelpModal content={helpContent} onClose={() => setIsHelpOpen(false)} />}
 
       <a href="#main-content" className="sr-only focus:not-sr-only absolute top-2 left-2 z-50 bg-os-accent text-os-bg px-4 py-2 rounded shadow-lg">پرش به محتوای اصلی</a>
 
@@ -404,6 +416,15 @@ function AuthenticatedAppLayout() {
         </nav>
         <div className={`transition-all duration-300 ${collapsed ? "opacity-0 hidden" : "opacity-100"}`}><SidebarWidgets /></div>
         <div className={`mt-4 border-t border-os-border pt-4 ${collapsed ? "flex flex-col items-center gap-2" : ""}`}>
+          <button
+            type="button"
+            onClick={() => setIsHelpOpen(true)}
+            className={`mb-3 rounded-lg border border-os-accent/40 text-os-accent transition hover:bg-os-accent/10 ${collapsed ? "h-10 w-10 text-lg" : "w-full px-3 py-2 text-xs"}`}
+            aria-label="باز کردن راهنمای این صفحه"
+            title={collapsed ? "راهنمای این صفحه" : undefined}
+          >
+            {collapsed ? "؟" : "؟ راهنمای این صفحه"}
+          </button>
           {!collapsed && (
             <div className="mb-2 min-w-0 text-center">
               <p className="truncate text-[10px] font-bold text-os-text/70" title={user.email}>
@@ -433,6 +454,14 @@ function AuthenticatedAppLayout() {
             <h2 className="text-xs font-black text-os-text">{getPageTitle()}</h2>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsHelpOpen(true)}
+              className="rounded border border-os-accent/40 px-2 py-1 text-[10px] font-bold text-os-accent hover:bg-os-accent/10"
+              aria-label="راهنمای این صفحه"
+            >
+              ؟ راهنما
+            </button>
             {role === "owner" && (
               <button
                 type="button"
