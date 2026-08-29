@@ -1,10 +1,12 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 
 const AUTH_NOTICE_STORAGE_KEY = "mohammados_auth_notice";
 
 export default function LoginPage() {
   const { signIn, isConfigured } = useAuth();
+  const navigate = useNavigate();
   const [notice] = useState(() => {
     const value = localStorage.getItem(AUTH_NOTICE_STORAGE_KEY) || "";
     localStorage.removeItem(AUTH_NOTICE_STORAGE_KEY);
@@ -99,6 +101,13 @@ export default function LoginPage() {
             {busy ? "در حال ورود..." : "ورود"}
           </button>
         </form>
+        <button
+          type="button"
+          onClick={() => navigate("/demo")}
+          className="mt-3 w-full rounded-lg border border-os-accent/50 px-4 py-3 text-sm font-bold text-os-accent transition hover:bg-os-accent/10"
+        >
+          مشاهدهٔ دموی برنامه
+        </button>
         <p className="mt-6 text-center text-[10px] leading-6 text-os-text/40">
           ثبت‌نام عمومی بسته است؛ حساب‌ها فقط توسط مالک ساخته می‌شوند.
         </p>

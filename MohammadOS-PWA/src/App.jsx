@@ -24,6 +24,7 @@ const AddPage = lazy(() => import("./pages/AddPage"));
 const StatusPage = lazy(() => import("./pages/StatusPage"));
 const RoadmapPage = lazy(() => import("./pages/RoadmapPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
+const DemoPage = lazy(() => import("./pages/DemoPage"));
 
 function readReleaseNotification() {
   const activeVersion = localStorage.getItem(RELEASE_STORAGE_KEYS.activeVersion);
@@ -587,6 +588,7 @@ function AuthenticatedAppLayout() {
 
 function AppLayout() {
   const { user, role, loading, profileLoading, profileError, signOut } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -596,6 +598,13 @@ function AppLayout() {
     );
   }
 
+  if (!user && location.pathname === "/demo") {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <DemoPage />
+      </Suspense>
+    );
+  }
   if (!user) return <LoginPage />;
   if (profileLoading) {
     return (
