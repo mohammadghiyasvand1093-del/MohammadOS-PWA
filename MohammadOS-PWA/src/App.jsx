@@ -22,6 +22,7 @@ const ReportsPage = lazy(() => import("./pages/ReportsPage"));
 const AddPage = lazy(() => import("./pages/AddPage"));
 const StatusPage = lazy(() => import("./pages/StatusPage"));
 const RoadmapPage = lazy(() => import("./pages/RoadmapPage"));
+const AdminPage = lazy(() => import("./pages/AdminPage"));
 
 function readReleaseNotification() {
   const activeVersion = localStorage.getItem(RELEASE_STORAGE_KEYS.activeVersion);
@@ -242,6 +243,7 @@ function AuthenticatedAppLayout() {
       case "/add": return "ویرایشگر داده";
       case "/status": return "وضعیت سیستم";
       case "/roadmap": return "نقشه راه";
+      case "/admin": return "پنل مدیریت";
       default: return "MohammadOS";
     }
   };
@@ -321,7 +323,7 @@ function AuthenticatedAppLayout() {
           <p className="text-[9px] font-mono text-os-accent mt-1 tracking-[0.25em] uppercase">System Kernel v1.1</p>
         </div>
         <nav className={`flex flex-col gap-2 flex-1 ${collapsed ? "items-center" : ""}`} role="navigation" aria-label="ناوبری اصلی">
-          {navItems.map((item) => (
+          {[...navItems, ...(role === "owner" ? [{ path: "/admin", label: "مدیریت", iconId: "nav-status", key: "8", ariaLabel: "پنل مدیریت حساب‌ها" }] : [])].map((item) => (
             <NavLink
               key={item.path}
               to={item.path}
@@ -376,6 +378,15 @@ function AuthenticatedAppLayout() {
             <h2 className="text-xs font-black text-os-text">{getPageTitle()}</h2>
           </div>
           <div className="flex items-center gap-3">
+            {role === "owner" && (
+              <button
+                type="button"
+                onClick={() => navigate("/admin")}
+                className="text-[10px] text-os-text/50 hover:text-os-accent"
+              >
+                مدیریت
+              </button>
+            )}
             <button
               type="button"
               onClick={() => signOut()}
@@ -486,6 +497,7 @@ function AuthenticatedAppLayout() {
                 <Route path="/add" element={<AddPage />} />
                 <Route path="/status" element={<StatusPage />} />
                 <Route path="/roadmap" element={<RoadmapPage />} />
+                <Route path="/admin" element={role === "owner" ? <AdminPage /> : <Navigate to="/" replace />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Suspense>

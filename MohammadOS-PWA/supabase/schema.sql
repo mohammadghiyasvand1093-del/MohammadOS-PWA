@@ -15,11 +15,43 @@ alter table public.profiles enable row level security;
 
 grant select on public.profiles to authenticated;
 
+create or replace function public.is_owner()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1
+    from public.profiles
+    where id = (select auth.uid())
+      and role = 'owner'
+      and is_active = true
+  );
+$$;
+
+revoke all on function public.is_owner() from public;
+grant execute on function public.is_owner() to authenticated;
+
 drop policy if exists "Users can read their own profile" on public.profiles;
 create policy "Users can read their own profile"
   on public.profiles for select
   to authenticated
   using ((select auth.uid()) = id);
+
+drop policy if exists "Owners can read all profiles" on public.profiles;
+create policy "Owners can read all profiles"
+  on public.profiles for select
+  to authenticated
+  using ((select public.is_owner()));
+
+drop policy if exists "Owners can update profiles" on public.profiles;
+create policy "Owners can update profiles"
+  on public.profiles for update
+  to authenticated
+  using ((select public.is_owner()))
+  with check (role in ('owner', 'guest'));
 
 -- Insert exactly the two accounts created in Authentication > Users.
 -- Replace the email addresses before running.
