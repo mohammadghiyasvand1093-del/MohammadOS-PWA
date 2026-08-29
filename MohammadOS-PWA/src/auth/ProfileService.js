@@ -6,7 +6,7 @@ export const ProfileService = {
 
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, email, display_name, role, is_active, profile_setup_completed, last_login_at, last_seen_at")
+      .select("id, email, display_name, role, is_active, profile_setup_completed, last_login_at, last_seen_at, reauth_required_at")
       .eq("id", userId)
       .maybeSingle();
 
@@ -20,7 +20,7 @@ export const ProfileService = {
 
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, email, display_name, role, is_active, profile_setup_completed, last_login_at, last_seen_at")
+      .select("id, email, display_name, role, is_active, profile_setup_completed, last_login_at, last_seen_at, reauth_required_at")
       .order("role", { ascending: true });
     return { profiles: data || [], error };
   },
@@ -46,7 +46,16 @@ export const ProfileService = {
     const { data, error } = await supabase.rpc("update_own_profile", {
       new_display_name: name,
     });
-    return { profile: data || null, error };
+    if (error) {
+      const setupError = new Error(
+        error.code === "PGRST202"
+          ? "تابع ذخیره نام در Supabase نصب نشده است."
+          : error.message
+      );
+      setupError.cause = error;
+      return { profile: null, error: setupError };
+    }
+    return { profile: data || null, error: null };
   },
 
   async setActive(userId, isActive) {
@@ -56,9 +65,13 @@ export const ProfileService = {
 
     const { data, error } = await supabase
       .from("profiles")
-      .update({ is_active: isActive, updated_at: new Date().toISOString() })
+      .update({
+        is_active: isActive,
+        ...(isActive ? {} : { reauth_required_at: new Date().toISOString() }),
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", userId)
-      .select("id, email, display_name, role, is_active, profile_setup_completed, last_login_at, last_seen_at")
+      .select("id, email, display_name, role, is_active, profile_setup_completed, last_login_at, last_seen_at, reauth_required_at")
       .single();
     return { profile: data || null, error };
   },

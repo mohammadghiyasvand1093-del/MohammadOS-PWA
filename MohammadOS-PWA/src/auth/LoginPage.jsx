@@ -1,8 +1,15 @@
 import { useState } from "react";
 import { useAuth } from "./AuthContext";
 
+const AUTH_NOTICE_STORAGE_KEY = "mohammados_auth_notice";
+
 export default function LoginPage() {
   const { signIn, isConfigured } = useAuth();
+  const [notice] = useState(() => {
+    const value = localStorage.getItem(AUTH_NOTICE_STORAGE_KEY) || "";
+    localStorage.removeItem(AUTH_NOTICE_STORAGE_KEY);
+    return value;
+  });
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -39,6 +46,11 @@ export default function LoginPage() {
         {error && (
           <div className="mb-4 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-300" role="alert">
             {error}
+          </div>
+        )}
+        {notice && (
+          <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs leading-6 text-amber-300" role="status">
+            {notice}
           </div>
         )}
 

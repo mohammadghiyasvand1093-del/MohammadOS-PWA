@@ -9,6 +9,7 @@ create table if not exists public.profiles (
   role text not null default 'guest' check (role in ('owner', 'guest')),
   is_active boolean not null default true,
   profile_setup_completed boolean not null default false,
+  reauth_required_at timestamptz,
   last_login_at timestamptz,
   last_seen_at timestamptz,
   created_at timestamptz not null default now(),
@@ -18,6 +19,7 @@ create table if not exists public.profiles (
 alter table public.profiles
   add column if not exists email text not null default '',
   add column if not exists profile_setup_completed boolean not null default false,
+  add column if not exists reauth_required_at timestamptz,
   add column if not exists last_login_at timestamptz,
   add column if not exists last_seen_at timestamptz;
 
@@ -65,6 +67,10 @@ begin
     last_login_at = case
       when record_login then now()
       else last_login_at
+    end,
+    reauth_required_at = case
+      when record_login then null
+      else reauth_required_at
     end,
     updated_at = now()
   where id = target_user_id

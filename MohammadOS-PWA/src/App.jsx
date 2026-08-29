@@ -89,8 +89,8 @@ function DisplayNamePrompt({ profile, user, onSaved }) {
       const { profile: updated, error: updateError } = await ProfileService.updateDisplayName(user.id, name);
       if (updateError) throw updateError;
       onSaved(updated || { ...profile, display_name: name.trim() });
-    } catch {
-      setError("نام ذخیره نشد؛ دوباره تلاش کنید.");
+    } catch (saveError) {
+      setError(saveError.message || "نام ذخیره نشد؛ دوباره تلاش کنید.");
     } finally {
       setBusy(false);
     }
