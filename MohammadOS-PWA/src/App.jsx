@@ -13,6 +13,7 @@ import { useSwipeNavigation } from "./hooks/useSwipeNavigation";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { RELEASE_INFO, RELEASE_STORAGE_KEYS } from "./constants/release";
 import { useAuth } from "./auth/AuthContext";
+import { ProfileService } from "./auth/ProfileService";
 import LoginPage from "./auth/LoginPage";
 
 const TodayPage = lazy(() => import("./pages/TodayPage"));
@@ -75,8 +76,58 @@ function AccountState({ title, description, onSignOut }) {
   );
 }
 
+function DisplayNamePrompt({ profile, user, onSaved }) {
+  const [name, setName] = useState(profile?.display_name || "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setError("");
+    setBusy(true);
+    try {
+      const { profile: updated, error: updateError } = await ProfileService.updateDisplayName(user.id, name);
+      if (updateError) throw updateError;
+      onSaved(updated || { ...profile, display_name: name.trim() });
+    } catch {
+      setError("نام ذخیره نشد؛ دوباره تلاش کنید.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 p-4" dir="rtl" role="dialog" aria-modal="true" aria-labelledby="display-name-title">
+      <form onSubmit={handleSubmit} className="w-full max-w-md rounded-2xl border border-os-border bg-os-card p-6 shadow-2xl">
+        <div className="mb-5 text-center">
+          <div className="mb-2 text-4xl" aria-hidden="true">👋</div>
+          <h2 id="display-name-title" className="text-xl font-black">اسمت را وارد کن</h2>
+          <p className="mt-2 text-xs leading-6 text-os-text/60">این نام در برنامه و پنل مدیریت نمایش داده می‌شود.</p>
+        </div>
+        {error && <p className="mb-3 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-300" role="alert">{error}</p>}
+        <label className="block">
+          <span className="mb-2 block text-xs font-bold text-os-text/70">نام نمایشی</span>
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            autoFocus
+            minLength={2}
+            maxLength={80}
+            className="w-full rounded-lg border border-os-border bg-os-bg px-4 py-3 text-sm outline-none focus:border-os-accent"
+            placeholder="مثلاً علی"
+            required
+          />
+        </label>
+        <button type="submit" disabled={busy} className="mt-5 w-full rounded-lg bg-os-accent px-4 py-3 text-sm font-black text-os-bg disabled:opacity-50">
+          {busy ? "در حال ذخیره..." : "ذخیره و شروع"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 function AuthenticatedAppLayout() {
-  const { user, role, signOut } = useAuth();
+  const { user, role, profile, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
@@ -103,7 +154,7 @@ function AuthenticatedAppLayout() {
     },
   });
 
-  const { showOnboarding, onboardingStep, setOnboardingStep, handleFinishOnboarding } = useOnboarding();
+  const { showOnboarding, onboardingStep, setOnboardingStep, handleFinishOnboarding } = useOnboarding(user?.id);
   const isOnline = useOnlineStatus();
 
   const navigateWithTransition = useCallback((path) => {
@@ -250,6 +301,9 @@ function AuthenticatedAppLayout() {
 
   return (
     <div className="flex h-screen w-full bg-os-bg text-os-text font-vazir rtl select-none overflow-hidden">
+      {profile?.role === "guest" && !profile.profile_setup_completed && (
+        <DisplayNamePrompt profile={profile} user={user} onSaved={() => window.location.reload()} />
+      )}
       {showOnboarding && (
         <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 animate-fade-in" role="dialog" aria-modal="true">
           <div className="bg-os-card border border-os-border rounded-2xl p-6 max-w-md w-full text-center shadow-2xl">

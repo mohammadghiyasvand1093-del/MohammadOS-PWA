@@ -6,7 +6,7 @@ import { ImportService, IMPORT_TABLES } from "../app/ImportService";
 import { AggregationService } from "../service/aggregationService";
 import { exportToJSON, exportToCSV } from "../app/exportData";
 import {
-  getPersianWeekKey, getPersianWeekRange, getLocalDateKey, nowMs, toPersianDate, toPersianNumber, toPersianWeekRangeLabel,
+  getPersianWeekKey, getPersianWeekRange, getLocalDateKey, getDayEnFromDateKey, nowMs, toPersianDate, toPersianNumber, toPersianWeekRangeLabel,
 } from "../utils/date";
 
 import {
@@ -33,6 +33,19 @@ function addDaysToDateKey(dateKey, amount) {
   return getLocalDateKey(date);
 }
 
+function durationMinutes(startTime, endTime) {
+  if (!startTime || !endTime) return 0;
+  const [startHour, startMinute] = String(startTime).split(":").map(Number);
+  const [endHour, endMinute] = String(endTime).split(":").map(Number);
+  if (![startHour, startMinute, endHour, endMinute].every(Number.isFinite)) return 0;
+  const duration = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+  return duration > 0 ? duration : 0;
+}
+
+function entryActualMinutes(entry) {
+  return durationMinutes(entry?.actualStart, entry?.actualEnd);
+}
+
 export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState("weekly");
   const [loading, setLoading] = useState(true);
@@ -47,6 +60,7 @@ export default function ReportsPage() {
   const [domainTrend, setDomainTrend] = useState([]);
   const [analyticsTrend, setAnalyticsTrend] = useState([]);
   const [moodDist, setMoodDist] = useState([]);
+  const [monthStats, setMonthStats] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [scheduleBlocks, setScheduleBlocks] = useState([]);
   const [exportRange, setExportRange] = useState("30");
@@ -92,16 +106,44 @@ export default function ReportsPage() {
 
   useEffect(() => {
     let mounted = true;
+    const base = new Date(nowMs());
+    base.setMonth(base.getMonth() + monthOffset);
+    AggregationService.getMonthStats(base.getFullYear(), base.getMonth() + 1)
+      .then((stats) => { if (mounted) setMonthStats(stats); })
+      .catch((err) => console.error("ReportsPage month load error:", err));
+    return () => { mounted = false; };
+  }, [monthOffset]);
+
+  useEffect(() => {
+    let mounted = true;
     async function loadSchedules() {
       try {
-        const days = ["saturday", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday"];
-        const all = await Promise.all(days.map(d => ScheduleRepository.getDaySchedule(d).catch(() => null)));
-        if (mounted) setScheduleBlocks(all.filter(Boolean).flatMap(d => d.schedule || []));
+        const base = new Date(nowMs());
+        base.setDate(base.getDate() + weekOffset * 7);
+        const { startDate } = getPersianWeekRange(getPersianWeekKey(base));
+        const dates = [];
+        for (let i = 0; i < 7; i++) dates.push(addDaysToDateKey(startDate, i));
+        const all = await Promise.all(
+          dates.map((dateKey) =>
+            ScheduleRepository.getScheduleForDate(dateKey, getDayEnFromDateKey(dateKey)).catch(() => null)
+          )
+        );
+        if (mounted) {
+          setScheduleBlocks(
+            all.flatMap((record, index) =>
+              (record?.schedule || []).map((item) => ({
+                ...item,
+                dateKey: dates[index],
+                dayOfWeek: getDayEnFromDateKey(dates[index]),
+              }))
+            )
+          );
+        }
       } catch (err) { console.error("Schedule load error:", err); }
     }
     loadSchedules();
     return () => { mounted = false; };
-  }, []);
+  }, [weekOffset]);
 
   useEffect(() => {
     let mounted = true;
@@ -172,12 +214,17 @@ export default function ReportsPage() {
     scheduleBlocks.forEach(item => {
       let dayKey = item.dayOfWeek || item.day;
       if (typeof dayKey === 'number') dayKey = ["saturday", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday"][dayKey];
-      if (dayKey && daysMap[dayKey]) daysMap[dayKey].planned += Number(item.duration) || 60;
+      if (dayKey && daysMap[dayKey]) {
+        daysMap[dayKey].planned += Number(item.duration) || durationMinutes(item.startTime, item.endTime);
+      }
     });
     const jsToPersian = [1, 2, 3, 4, 5, 6, 0]; const daysArr = ["saturday", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday"];
     weekLogs.forEach(log => {
-      const dateObj = new Date(log.date); const dayKey = daysArr[jsToPersian[dateObj.getDay()]];
-      if (dayKey && daysMap[dayKey]) daysMap[dayKey].actual += Number(log.totalMinutes) || 0;
+      const dateObj = new Date(`${log.date}T00:00:00`);
+      const dayKey = daysArr[jsToPersian[dateObj.getDay()]];
+      if (dayKey && daysMap[dayKey]) {
+        daysMap[dayKey].actual += (log.entries || []).reduce((total, entry) => total + entryActualMinutes(entry), 0);
+      }
     });
     const dataArray = Object.values(daysMap);
     return { dataArray, maxMins: Math.max(...dataArray.map(d => Math.max(d.planned, d.actual)), 60) };
@@ -340,9 +387,12 @@ export default function ReportsPage() {
 
   const renderProductivityCurve = () => {
     if (!analyticsTrend.length) return <p className="text-os-text/50 text-sm text-center py-4">داده‌ای برای نمایش وجود ندارد.</p>;
-    const width = 600, height = 200, padding = 30, chartW = width - padding * 2, chartH = height - padding * 2, maxFullDays = 7, stepX = chartW / (analyticsTrend.length - 1 || 1);
+    const width = 600, height = 200, padding = 30, chartW = width - padding * 2, chartH = height - padding * 2, stepX = chartW / (analyticsTrend.length - 1 || 1);
     const pointsConsistency = analyticsTrend.map((w, i) => `${padding + i * stepX},${padding + chartH - (w.consistency / 100) * chartH}`).join(" ");
-    const pointsFullDays = analyticsTrend.map((w, i) => `${padding + i * stepX},${padding + chartH - (w.fullDays / maxFullDays) * chartH}`).join(" ");
+    const pointsFullDays = analyticsTrend.map((w, i) => {
+      const fullDayRate = w.activeDays > 0 ? (w.fullDays / w.activeDays) * 100 : 0;
+      return `${padding + i * stepX},${padding + chartH - (fullDayRate / 100) * chartH}`;
+    }).join(" ");
     return (
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full" role="img" aria-label="نمودار بهره‌وری ۱۲ هفته اخیر">
         {[0, 25, 50, 75, 100].map(t => { const y = padding + chartH - (t / 100) * chartH; return <g key={t}><line x1={padding} y1={y} x2={width - padding} y2={y} stroke="currentColor" strokeOpacity="0.05" /><text x={padding - 5} y={y + 3} textAnchor="end" fill="currentColor" fontSize="9" opacity="0.5">{toPersianNumber(t)}%</text></g>; })}
@@ -504,9 +554,9 @@ export default function ReportsPage() {
             <button onClick={() => setMonthOffset(o => o + 1)} className="px-3 py-1.5 rounded border border-os-border text-xs font-mono">ماه بعد →</button>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="bg-os-card border border-os-border rounded-lg p-4 text-center"><div className="text-2xl font-black text-emerald-400">{toPersianNumber(vitals?.monthRate ?? 0)}</div><div className="text-[10px] font-mono text-os-text/50 mt-1">MONTH RATE %</div></div>
+            <div className="bg-os-card border border-os-border rounded-lg p-4 text-center"><div className="text-2xl font-black text-emerald-400">{toPersianNumber(monthStats?.monthRate ?? 0)}</div><div className="text-[10px] font-mono text-os-text/50 mt-1">MONTH RATE %</div></div>
             <div className="bg-os-card border border-os-border rounded-lg p-4 text-center"><div className="text-2xl font-black text-sky-400">{toPersianNumber(vitals?.streak ?? 0)}</div><div className="text-[10px] font-mono text-os-text/50 mt-1">STREAK</div></div>
-            <div className="bg-os-card border border-os-border rounded-lg p-4 text-center"><div className="text-2xl font-black text-amber-400">{toPersianNumber(vitals?.avgMood ?? "-")}</div><div className="text-[10px] font-mono text-os-text/50 mt-1">AVG MOOD</div></div>
+            <div className="bg-os-card border border-os-border rounded-lg p-4 text-center"><div className="text-2xl font-black text-amber-400">{toPersianNumber(monthStats?.avgMood ?? "-")}</div><div className="text-[10px] font-mono text-os-text/50 mt-1">AVG MOOD</div></div>
             <div className="bg-os-card border border-os-border rounded-lg p-4 text-center"><div className="text-2xl font-black text-blue-400">{toPersianNumber(vitals?.consistency ?? 0)}%</div><div className="text-[10px] font-mono text-os-text/50 mt-1">CONSISTENCY</div></div>
           </div>
           <div className="bg-os-card border border-os-border rounded-lg p-4">
@@ -521,7 +571,7 @@ export default function ReportsPage() {
         <div id="panel-analytics" role="tabpanel" className="space-y-6">
           <div className="bg-os-card border border-os-border rounded-lg p-4">
             <h3 className="text-sm font-mono text-os-accent mb-4 text-left">[ ◈ ] PRODUCTIVITY CURVE (12 WEEKS)</h3>
-            <div className="flex justify-center gap-6 mb-4 text-[10px] font-mono"><div className="flex items-center gap-2"><div className="w-4 h-0.5 bg-sky-400"></div><span className="text-os-text/60">Consistency %</span></div><div className="flex items-center gap-2"><div className="w-4 h-0.5 bg-emerald-400 border-dashed"></div><span className="text-os-text/60">Full Days</span></div></div>
+            <div className="flex justify-center gap-6 mb-4 text-[10px] font-mono"><div className="flex items-center gap-2"><div className="w-4 h-0.5 bg-sky-400"></div><span className="text-os-text/60">Consistency %</span></div><div className="flex items-center gap-2"><div className="w-4 h-0.5 bg-emerald-400 border-dashed"></div><span className="text-os-text/60">Full Day Rate %</span></div></div>
             {renderProductivityCurve()}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

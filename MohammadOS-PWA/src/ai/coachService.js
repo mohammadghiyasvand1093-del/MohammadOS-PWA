@@ -8,6 +8,7 @@
 
 // ✅ FIX 3.9: Added toPersianDate
 import { toPersianDate, getLocalDateKey } from "../utils/date";
+import { isSupabaseConfigured, supabase } from "../auth/supabaseClient";
 
 /* ──────────── Rule-based insights ──────────── */
 
@@ -207,11 +208,16 @@ async function callAvalAI(messages, maxTokens = 600) {
   const timeout = setTimeout(() => controller.abort(), 15000);
 
   try {
+    if (!isSupabaseConfigured || !supabase) throw new Error("برای استفاده از مربی آنلاین، ورود به حساب لازم است.");
+    const { data: { session } = {} } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error("نشست حساب معتبر نیست؛ دوباره وارد شوید.");
+
     const res = await fetch('/api/ai/coach', {
       method: "POST",
       signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
+        "Authorization": `Bearer ${session.access_token}`,
       },
       body: JSON.stringify({
         messages,

@@ -94,7 +94,7 @@ Rules:
 - Manually-created events are stored as `one_off_event` and remain visible on top of both modes.
 
 The AI coach proxy is optional. To show it as configured in the UI, set the public build flag
-`VITE_AI_PROXY_ENABLED=true`; the private `AVALAI_API_KEY` must remain a server-side deployment secret.
+`VITE_AI_PROXY_ENABLED=true`. The browser sends the authenticated Supabase access token to `/api/ai/coach`; the server validates it before contacting an AI provider. Configure `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and the private `AVALAI_API_KEY` in Vercel. You may also configure `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, and comma-separated `OPENROUTER_FALLBACK_MODELS`; the server tries AvalAI first and OpenRouter second. Never put an AI key in a `VITE_` variable or commit it to the repository.
 
 ---
 

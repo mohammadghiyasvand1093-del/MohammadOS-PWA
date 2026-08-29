@@ -8,6 +8,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
 
   const loadProfiles = useCallback(async () => {
     setLoading(true);
@@ -24,6 +25,30 @@ export default function AdminPage() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [loadProfiles]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void loadProfiles();
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, [loadProfiles]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  function formatDate(value) {
+    if (!value) return "ثبت نشده";
+    return new Intl.DateTimeFormat("fa-IR", {
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(new Date(value));
+  }
+
+  function isOnline(value) {
+    return value && currentTime - new Date(value).getTime() < 2 * 60 * 1000;
+  }
 
   async function handleToggle(item) {
     if (item.role === "owner") return;
@@ -62,7 +87,15 @@ export default function AdminPage() {
               <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-os-border/70 bg-os-bg/50 p-3">
                 <div className="min-w-0">
                   <p className="font-bold text-sm">{item.display_name || (item.role === "owner" ? "مالک" : "مهمان")}</p>
+                  <p className="truncate text-[10px] text-os-text/60" dir="ltr">{item.email || "ایمیل ثبت نشده"}</p>
                   <p className="truncate text-[10px] text-os-text/50" dir="ltr">{item.id}</p>
+                  <p className="mt-2 text-[10px] text-os-text/60">
+                    <span className={isOnline(item.last_seen_at) ? "text-emerald-300" : "text-os-text/50"}>
+                      {isOnline(item.last_seen_at) ? "● اکنون فعال" : "○ آفلاین"}
+                    </span>
+                    <span className="mx-2">|</span>
+                    آخرین ورود: {formatDate(item.last_login_at)}
+                  </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <span className={`rounded px-2 py-1 text-[10px] ${item.is_active ? "bg-emerald-500/10 text-emerald-300" : "bg-red-500/10 text-red-300"}`}>

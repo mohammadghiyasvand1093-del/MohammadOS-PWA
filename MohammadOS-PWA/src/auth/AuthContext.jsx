@@ -47,6 +47,7 @@ export function AuthProvider({ children }) {
     );
     if (nextProfile?.is_active) {
       await migrateLegacyDataToUser(nextSession.user.id, nextProfile.role);
+      void ProfileService.touchPresence(nextSession.user.id);
     }
     setProfileLoading(false);
   }
@@ -70,7 +71,7 @@ export function AuthProvider({ children }) {
       if (mounted) setLoading(false);
     });
 
-    const authState = AuthService.onAuthStateChange((_event, nextSession) => {
+    const authState = AuthService.onAuthStateChange((event, nextSession) => {
       if (mounted) {
         if (switchActiveAccount(nextSession)) {
           window.location.reload();
@@ -78,6 +79,9 @@ export function AuthProvider({ children }) {
         }
         setSession(nextSession);
         void loadProfile(nextSession);
+        if (event === "SIGNED_IN" && nextSession?.user?.id) {
+          void ProfileService.touchPresence(nextSession.user.id, { recordLogin: true });
+        }
       }
     });
     subscription = authState?.data?.subscription;
@@ -87,6 +91,22 @@ export function AuthProvider({ children }) {
       subscription?.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!session?.user?.id || profile?.is_active !== true) return undefined;
+
+    const touch = () => {
+      if (document.visibilityState === "visible") {
+        void ProfileService.touchPresence(session.user.id);
+      }
+    };
+    const timer = window.setInterval(touch, 60_000);
+    document.addEventListener("visibilitychange", touch);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", touch);
+    };
+  }, [session?.user?.id, profile?.is_active]);
 
   const value = useMemo(() => ({
     session,

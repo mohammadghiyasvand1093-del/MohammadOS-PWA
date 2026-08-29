@@ -187,6 +187,26 @@ export const AggregationService = {
     };
   },
 
+  async getMonthStats(year, month) {
+    const todayKey = getLocalDateKey(new Date(nowMs()));
+    const logs = await DayLogRepository.getMonthLogs(year, month);
+    const visibleLogs = logs.filter((log) => log.date <= todayKey);
+    const activeLogs = visibleLogs.filter((log) => log.status !== "frozen");
+    const rateLogs = activeLogs.filter((log) => !isFriday(log.date));
+    const fullDays = rateLogs.filter((log) => log.fullDay).length;
+    const moodLogs = activeLogs.filter((log) => log.mood != null);
+
+    return {
+      totalDays: rateLogs.length,
+      fullDays,
+      frozenDays: visibleLogs.filter((log) => log.status === "frozen").length,
+      monthRate: rateLogs.length ? Math.round((fullDays / rateLogs.length) * 100) : 0,
+      avgMood: moodLogs.length
+        ? (moodLogs.reduce((sum, log) => sum + Number(log.mood), 0) / moodLogs.length).toFixed(1)
+        : "-",
+    };
+  },
+
   async getWeeklyStats(referenceDate) {
     const { startDateStr, endDateStr } = getWeekRange(referenceDate);
 
@@ -449,7 +469,7 @@ export const AggregationService = {
     
     const dist = [0, 0, 0, 0, 0, 0]; // index 1 to 5 used
     logs.forEach(l => {
-      if (l.mood != null && l.mood >= 1 && l.mood <= 5) {
+      if (l.date <= getLocalDateKey(today) && l.status !== "frozen" && l.mood != null && l.mood >= 1 && l.mood <= 5) {
         dist[l.mood]++;
       }
     });

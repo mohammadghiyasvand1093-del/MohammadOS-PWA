@@ -1,15 +1,16 @@
 import { useState, useCallback } from "react";
 
-export function useOnboarding() {
+export function useOnboarding(userId) {
+  const storageKey = userId ? `mohammados_onboarding_seen_${userId}` : "mohammados_onboarding_seen";
   const [showOnboarding, setShowOnboarding] = useState(() => {
-    return localStorage.getItem("mohammados_onboarding_seen") !== "v1";
+    return localStorage.getItem(storageKey) !== "v1";
   });
   const [onboardingStep, setOnboardingStep] = useState(0);
 
   const handleFinishOnboarding = useCallback(() => {
-    localStorage.setItem("mohammados_onboarding_seen", "v1");
+    localStorage.setItem(storageKey, "v1");
     setShowOnboarding(false);
-  }, []);
+  }, [storageKey]);
 
   return {
     showOnboarding,

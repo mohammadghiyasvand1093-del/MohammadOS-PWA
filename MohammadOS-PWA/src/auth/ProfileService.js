@@ -6,7 +6,7 @@ export const ProfileService = {
 
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, display_name, role, is_active")
+      .select("id, email, display_name, role, is_active, profile_setup_completed, last_login_at, last_seen_at")
       .eq("id", userId)
       .maybeSingle();
 
@@ -20,9 +20,33 @@ export const ProfileService = {
 
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, display_name, role, is_active")
+      .select("id, email, display_name, role, is_active, profile_setup_completed, last_login_at, last_seen_at")
       .order("role", { ascending: true });
     return { profiles: data || [], error };
+  },
+
+  async touchPresence(userId, { recordLogin = false } = {}) {
+    if (!isSupabaseConfigured || !userId) return { error: null };
+
+    const { error } = await supabase.rpc("touch_profile_presence", {
+      target_user_id: userId,
+      record_login: recordLogin,
+    });
+    return { error };
+  },
+
+  async updateDisplayName(userId, displayName) {
+    if (!isSupabaseConfigured || !userId) {
+      return { profile: null, error: new Error("Supabase is not configured") };
+    }
+
+    const name = String(displayName || "").trim().slice(0, 80);
+    if (name.length < 2) return { profile: null, error: new Error("نام کوتاه است") };
+
+    const { data, error } = await supabase.rpc("update_own_profile", {
+      new_display_name: name,
+    });
+    return { profile: data || null, error };
   },
 
   async setActive(userId, isActive) {
@@ -34,7 +58,7 @@ export const ProfileService = {
       .from("profiles")
       .update({ is_active: isActive, updated_at: new Date().toISOString() })
       .eq("id", userId)
-      .select("id, display_name, role, is_active")
+      .select("id, email, display_name, role, is_active, profile_setup_completed, last_login_at, last_seen_at")
       .single();
     return { profile: data || null, error };
   },
