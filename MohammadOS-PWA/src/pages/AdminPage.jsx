@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { ProfileService } from "../auth/ProfileService";
+import { AccessRequestService } from "../auth/AccessRequestService";
 
 export default function AdminPage() {
   const { profile } = useAuth();
@@ -9,6 +10,8 @@ export default function AdminPage() {
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
   const [currentTime, setCurrentTime] = useState(() => Date.now());
+  const [requests, setRequests] = useState([]);
+  const [requestBusyId, setRequestBusyId] = useState(null);
 
   const loadProfiles = useCallback(async () => {
     setLoading(true);
@@ -16,6 +19,9 @@ export default function AdminPage() {
     const { profiles: nextProfiles, error: loadError } = await ProfileService.getProfiles();
     if (loadError) setError("بارگذاری حساب‌ها انجام نشد؛ قوانین Supabase را بررسی کنید.");
     setProfiles(nextProfiles);
+    const { requests: nextRequests, error: requestError } = await AccessRequestService.getPending();
+    if (requestError && !loadError) setError("درخواست‌ها بارگذاری نشدند؛ جدول access_requests را در Supabase اجرا کنید.");
+    setRequests(nextRequests);
     setLoading(false);
   }, []);
 
@@ -58,6 +64,18 @@ export default function AdminPage() {
     if (updateError) setError("تغییر وضعیت حساب انجام نشد.");
     else setProfiles((current) => current.map((profileItem) => profileItem.id === updated.id ? updated : profileItem));
     setBusyId(null);
+  }
+
+  async function handleReview(request, status) {
+    setRequestBusyId(request.id);
+    setError("");
+    const { request: reviewed, error: reviewError } = await AccessRequestService.review(request.id, status);
+    if (reviewError) {
+      setError("تغییر وضعیت درخواست انجام نشد؛ SQL مربوط به درخواست‌ها را بررسی کنید.");
+    } else if (reviewed) {
+      setRequests((current) => current.filter((item) => item.id !== reviewed.id));
+    }
+    setRequestBusyId(null);
   }
 
   return (
@@ -111,6 +129,52 @@ export default function AdminPage() {
                       {busyId === item.id ? "..." : item.is_active ? "غیرفعال‌کردن" : "فعال‌کردن"}
                     </button>
                   )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-xl border border-os-border bg-os-card p-4" aria-labelledby="requests-title">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <h2 id="requests-title" className="font-bold">درخواست‌های عضویت</h2>
+          <span className="rounded bg-os-accent/10 px-2 py-1 text-[10px] text-os-accent">{requests.length} در انتظار</span>
+        </div>
+        <p className="mb-4 text-[11px] leading-6 text-os-text/50">
+          تأیید درخواست، مجوز ساخت حساب را ثبت می‌کند. بعد از تأیید، حساب را در Authentication &gt; Users بساز و پروفایلش را به نقش guest وصل کن.
+        </p>
+        {requests.length === 0 ? (
+          <p className="py-5 text-center text-xs text-os-text/50">درخواست جدیدی وجود ندارد.</p>
+        ) : (
+          <div className="space-y-3">
+            {requests.map((request) => (
+              <div key={request.id} className="rounded-lg border border-os-border/70 bg-os-bg/50 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-bold text-sm">{request.display_name}</p>
+                    <p className="mt-1 truncate text-[10px] text-os-text/60" dir="ltr">{request.email}</p>
+                    <p className="mt-1 text-[10px] text-os-text/40">ثبت درخواست: {formatDate(request.created_at)}</p>
+                    {request.note && <p className="mt-2 rounded border border-os-border/60 p-2 text-xs leading-5 text-os-text/65">{request.note}</p>}
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleReview(request, "approved")}
+                      disabled={requestBusyId === request.id}
+                      className="rounded border border-emerald-500/50 px-3 py-1.5 text-[10px] text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-40"
+                    >
+                      تأیید
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleReview(request, "rejected")}
+                      disabled={requestBusyId === request.id}
+                      className="rounded border border-red-500/50 px-3 py-1.5 text-[10px] text-red-300 hover:bg-red-500/10 disabled:opacity-40"
+                    >
+                      رد
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

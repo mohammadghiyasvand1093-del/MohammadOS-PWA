@@ -129,6 +129,85 @@ create policy "Owners can update profiles"
   using ((select public.is_owner()))
   with check (role in ('owner', 'guest'));
 
+-- Public account requests.
+-- The request never stores a password. The owner creates the final Auth user
+-- from Supabase Authentication > Users after approving it.
+create table if not exists public.access_requests (
+  id uuid primary key default gen_random_uuid(),
+  display_name text not null check (length(trim(display_name)) between 2 and 80),
+  email text not null,
+  note text check (note is null or length(note) <= 500),
+  status text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
+  created_at timestamptz not null default now(),
+  reviewed_at timestamptz,
+  reviewed_by uuid references auth.users(id) on delete set null
+);
+
+alter table public.access_requests enable row level security;
+
+create unique index if not exists access_requests_one_pending_email
+  on public.access_requests (lower(email))
+  where status = 'pending';
+
+grant insert on public.access_requests to anon, authenticated;
+grant select on public.access_requests to authenticated;
+
+drop policy if exists "Anyone can submit an access request" on public.access_requests;
+create policy "Anyone can submit an access request"
+  on public.access_requests for insert
+  to anon, authenticated
+  with check (
+    status = 'pending'
+    and reviewed_at is null
+    and reviewed_by is null
+  );
+
+drop policy if exists "Owners can read access requests" on public.access_requests;
+create policy "Owners can read access requests"
+  on public.access_requests for select
+  to authenticated
+  using ((select public.is_owner()));
+
+create or replace function public.review_access_request(
+  target_request_id uuid,
+  next_status text
+)
+returns public.access_requests
+language plpgsql
+security definer
+set search_path = public
+volatile
+as $$
+declare
+  reviewed_request public.access_requests;
+begin
+  if not (select public.is_owner()) then
+    raise exception 'only the owner can review access requests';
+  end if;
+
+  if next_status not in ('approved', 'rejected') then
+    raise exception 'invalid access request status';
+  end if;
+
+  update public.access_requests
+  set status = next_status,
+      reviewed_at = now(),
+      reviewed_by = (select auth.uid())
+  where id = target_request_id
+    and status = 'pending'
+  returning * into reviewed_request;
+
+  if reviewed_request.id is null then
+    raise exception 'access request not found or already reviewed';
+  end if;
+
+  return reviewed_request;
+end;
+$$;
+
+revoke all on function public.review_access_request(uuid, text) from public;
+grant execute on function public.review_access_request(uuid, text) to authenticated;
+
 
 -- Insert exactly the two accounts created in Authentication > Users.
 -- Replace the email addresses before running.

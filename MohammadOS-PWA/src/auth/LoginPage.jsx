@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
+import AccessRequestModal from "./AccessRequestModal";
 
 const AUTH_NOTICE_STORAGE_KEY = "mohammados_auth_notice";
 
@@ -17,6 +18,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [isRequestOpen, setIsRequestOpen] = useState(false);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -108,10 +110,18 @@ export default function LoginPage() {
         >
           مشاهدهٔ دموی برنامه
         </button>
+        <button
+          type="button"
+          onClick={() => setIsRequestOpen(true)}
+          className="mt-3 w-full rounded-lg border border-os-border px-4 py-3 text-sm font-bold text-os-text/70 transition hover:border-os-accent hover:text-os-accent"
+        >
+          درخواست حساب جدید
+        </button>
         <p className="mt-6 text-center text-[10px] leading-6 text-os-text/40">
-          ثبت‌نام عمومی بسته است؛ حساب‌ها فقط توسط مالک ساخته می‌شوند.
+          ثبت‌نام مستقیم بسته است؛ درخواست‌ها ابتدا توسط مالک بررسی می‌شوند.
         </p>
       </section>
+      {isRequestOpen && <AccessRequestModal onClose={() => setIsRequestOpen(false)} />}
     </main>
   );
 }
