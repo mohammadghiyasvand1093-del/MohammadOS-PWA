@@ -16,6 +16,7 @@ import { useAuth } from "./auth/AuthContext";
 import { ProfileService } from "./auth/ProfileService";
 import LoginPage from "./auth/LoginPage";
 import HelpModal from "./components/HelpModal";
+import HelpCenterModal from "./components/HelpCenterModal";
 import { DEFAULT_HELP_CONTENT, HELP_CONTENT } from "./content/helpContent";
 import { useAccessRequestMonitor } from "./auth/useAccessRequestMonitor";
 import { showAppNotification } from "./utils/notifications";
@@ -140,6 +141,7 @@ function AuthenticatedAppLayout() {
   const [backupLoading, setBackupLoading] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isHelpCenterOpen, setIsHelpCenterOpen] = useState(false);
   const [notifData, setNotifData] = useState(null);
   const [releaseNotification, setReleaseNotification] = useState(readReleaseNotification);
   const [accessRequestNotification, setAccessRequestNotification] = useState(null);
@@ -389,7 +391,7 @@ function AuthenticatedAppLayout() {
                 </ul>
                 <button
                   type="button"
-                  onClick={() => setIsHelpOpen(true)}
+                  onClick={() => setIsHelpCenterOpen(true)}
                   className="mt-2 w-full rounded-lg border border-os-accent/50 px-3 py-2 text-xs font-bold text-os-accent hover:bg-os-accent/10"
                 >
                   راهنمای کامل همهٔ بخش‌ها
@@ -416,6 +418,7 @@ function AuthenticatedAppLayout() {
         </div>
       )}
       {isHelpOpen && <HelpModal content={helpContent} onClose={() => setIsHelpOpen(false)} />}
+      {isHelpCenterOpen && <HelpCenterModal onClose={() => setIsHelpCenterOpen(false)} />}
 
       <a href="#main-content" className="sr-only focus:not-sr-only absolute top-2 left-2 z-50 bg-os-accent text-os-bg px-4 py-2 rounded shadow-lg">پرش به محتوای اصلی</a>
 
