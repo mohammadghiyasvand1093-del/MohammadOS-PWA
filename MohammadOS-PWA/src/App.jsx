@@ -417,8 +417,17 @@ function AuthenticatedAppLayout() {
           </div>
         </div>
       )}
-      {isHelpOpen && <HelpModal content={helpContent} onClose={() => setIsHelpOpen(false)} />}
-      {isHelpCenterOpen && <HelpCenterModal onClose={() => setIsHelpCenterOpen(false)} />}
+      {isHelpOpen && (
+        <HelpModal
+          content={helpContent}
+          onClose={() => setIsHelpOpen(false)}
+          onOpenAll={() => {
+            setIsHelpOpen(false);
+            setIsHelpCenterOpen(true);
+          }}
+        />
+      )}
+      {isHelpCenterOpen && <HelpCenterModal onClose={() => setIsHelpCenterOpen(false)} includeAdmin={role === "owner"} />}
 
       <a href="#main-content" className="sr-only focus:not-sr-only absolute top-2 left-2 z-50 bg-os-accent text-os-bg px-4 py-2 rounded shadow-lg">پرش به محتوای اصلی</a>
 

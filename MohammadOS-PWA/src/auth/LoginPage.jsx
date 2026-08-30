@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import AccessRequestModal from "./AccessRequestModal";
-import HelpCenterModal from "../components/HelpCenterModal";
 
 const AUTH_NOTICE_STORAGE_KEY = "mohammados_auth_notice";
 
@@ -20,7 +19,6 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [isRequestOpen, setIsRequestOpen] = useState(false);
-  const [isHelpCenterOpen, setIsHelpCenterOpen] = useState(false);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -114,13 +112,6 @@ export default function LoginPage() {
         </button>
         <button
           type="button"
-          onClick={() => setIsHelpCenterOpen(true)}
-          className="mt-3 w-full rounded-lg border border-os-border px-4 py-3 text-sm font-bold text-os-text/70 transition hover:border-os-accent hover:text-os-accent"
-        >
-          راهنمای همهٔ بخش‌ها
-        </button>
-        <button
-          type="button"
           onClick={() => setIsRequestOpen(true)}
           className="mt-3 w-full rounded-lg border border-os-border px-4 py-3 text-sm font-bold text-os-text/70 transition hover:border-os-accent hover:text-os-accent"
         >
@@ -131,7 +122,6 @@ export default function LoginPage() {
         </p>
       </section>
       {isRequestOpen && <AccessRequestModal onClose={() => setIsRequestOpen(false)} />}
-      {isHelpCenterOpen && <HelpCenterModal onClose={() => setIsHelpCenterOpen(false)} />}
     </main>
   );
 }

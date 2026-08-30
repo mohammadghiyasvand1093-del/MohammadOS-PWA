@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-export default function HelpModal({ content, onClose }) {
+export default function HelpModal({ content, onClose, onOpenAll }) {
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key === "Escape") onClose();
@@ -30,7 +30,18 @@ export default function HelpModal({ content, onClose }) {
               <p className="mt-2 text-xs leading-6 text-os-text/60">{content.summary}</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg border border-os-border px-3 py-2 text-xs text-os-text/60 hover:border-os-accent hover:text-os-accent" aria-label="بستن راهنما">بستن</button>
+              <div className="flex shrink-0 items-center gap-2">
+                {onOpenAll && (
+                  <button
+                    type="button"
+                    onClick={onOpenAll}
+                    className="rounded-lg border border-os-accent/40 px-3 py-2 text-xs text-os-accent hover:bg-os-accent/10"
+                  >
+                    همهٔ بخش‌ها
+                  </button>
+                )}
+                <button type="button" onClick={onClose} className="rounded-lg border border-os-border px-3 py-2 text-xs text-os-text/60 hover:border-os-accent hover:text-os-accent" aria-label="بستن راهنما">بستن</button>
+              </div>
         </header>
         <div className="mt-5 space-y-5">
           <section>

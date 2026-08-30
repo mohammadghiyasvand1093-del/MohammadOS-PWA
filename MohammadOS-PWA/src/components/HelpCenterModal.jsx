@@ -6,10 +6,13 @@ const HELP_SECTIONS = Object.entries(HELP_CONTENT).map(([path, content]) => ({
   ...content,
 }));
 
-export default function HelpCenterModal({ onClose }) {
+export default function HelpCenterModal({ onClose, includeAdmin = true }) {
   const closeButtonRef = useRef(null);
-  const [selectedPath, setSelectedPath] = useState(HELP_SECTIONS[0]?.path || "/");
-  const selected = HELP_SECTIONS.find((section) => section.path === selectedPath) || {
+  const sections = includeAdmin
+    ? HELP_SECTIONS
+    : HELP_SECTIONS.filter((section) => section.path !== "/admin");
+  const [selectedPath, setSelectedPath] = useState(sections[0]?.path || "/");
+  const selected = sections.find((section) => section.path === selectedPath) || {
     path: "/",
     ...DEFAULT_HELP_CONTENT,
   };
@@ -66,7 +69,7 @@ export default function HelpCenterModal({ onClose }) {
             aria-label="بخش‌های راهنما"
             role="tablist"
           >
-            {HELP_SECTIONS.map((section) => (
+            {sections.map((section) => (
               <button
                 key={section.path}
                 type="button"
