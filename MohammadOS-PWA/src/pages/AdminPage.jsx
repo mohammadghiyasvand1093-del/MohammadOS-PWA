@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { ProfileService } from "../auth/ProfileService";
 import { AccessRequestService } from "../auth/AccessRequestService";
-import { supabase } from "../auth/supabaseClient";
 import { copyText } from "../utils/clipboard";
+import { useAccessRequestMonitor } from "../auth/useAccessRequestMonitor";
+import { showAppNotification } from "../utils/notifications";
 
 export default function AdminPage() {
   const { profile } = useAuth();
@@ -12,7 +13,6 @@ export default function AdminPage() {
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
   const [currentTime, setCurrentTime] = useState(() => Date.now());
-  const [requests, setRequests] = useState([]);
   const [requestBusyId, setRequestBusyId] = useState(null);
   const [browserNotificationState, setBrowserNotificationState] = useState(() =>
     typeof Notification === "undefined" ? "unsupported" : Notification.permission
@@ -27,17 +27,22 @@ export default function AdminPage() {
     if (noticeTimeoutRef.current) window.clearTimeout(noticeTimeoutRef.current);
     noticeTimeoutRef.current = window.setTimeout(() => setLiveNotice(null), 10_000);
 
-    if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-      try {
-        new Notification("درخواست حساب جدید", {
-          body: `${displayName} درخواست ورود به MohammadOS را ارسال کرد.`,
-          tag: `access-request-${request?.id || "new"}`,
-        });
-      } catch {
-        // A browser can still reject notifications after permission was granted.
-      }
-    }
+    void showAppNotification("درخواست حساب جدید", {
+      body: `${displayName} درخواست ورود به MohammadOS را ارسال کرد.`,
+      tag: `access-request-${request?.id || "new"}`,
+    });
   }, []);
+
+  const handleIncomingRequest = useCallback((request) => {
+    showLiveNotice(request);
+  }, [showLiveNotice]);
+  const {
+    requests,
+    error: requestLoadError,
+    realtimeStatus,
+    refresh: refreshRequests,
+    removeRequest,
+  } = useAccessRequestMonitor({ onNewRequest: handleIncomingRequest });
 
   const loadProfiles = useCallback(async () => {
     setLoading(true);
@@ -45,9 +50,6 @@ export default function AdminPage() {
     const { profiles: nextProfiles, error: loadError } = await ProfileService.getProfiles();
     if (loadError) setError("بارگذاری حساب‌ها انجام نشد؛ قوانین Supabase را بررسی کنید.");
     setProfiles(nextProfiles);
-    const { requests: nextRequests, error: requestError } = await AccessRequestService.getPending();
-    if (requestError && !loadError) setError("درخواست‌ها بارگذاری نشدند؛ جدول access_requests را در Supabase اجرا کنید.");
-    setRequests(nextRequests);
     setLoading(false);
   }, []);
 
@@ -73,30 +75,6 @@ export default function AdminPage() {
   useEffect(() => () => {
     if (noticeTimeoutRef.current) window.clearTimeout(noticeTimeoutRef.current);
   }, []);
-
-  useEffect(() => {
-    if (!supabase) return undefined;
-
-    const channel = supabase
-      .channel("owner-access-requests")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "access_requests", filter: "status=eq.pending" },
-        (payload) => {
-          const request = payload.new;
-          setRequests((current) => {
-            if (current.some((item) => item.id === request.id)) return current;
-            return [request, ...current];
-          });
-          showLiveNotice(request);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [showLiveNotice]);
 
   function formatDate(value) {
     if (!value) return "ثبت نشده";
@@ -142,10 +120,18 @@ export default function AdminPage() {
     if (reviewError) {
       setError("تغییر وضعیت درخواست انجام نشد؛ SQL مربوط به درخواست‌ها را بررسی کنید.");
     } else if (reviewed) {
-      setRequests((current) => current.filter((item) => item.id !== reviewed.id));
+      removeRequest(reviewed.id);
+      void refreshRequests();
     }
     setRequestBusyId(null);
   }
+
+  const realtimeLabel = {
+    connected: "اتصال زنده فعال",
+    connecting: "در حال اتصال زنده",
+    fallback: "حالت پشتیبان فعال",
+    disabled: "اعلان درخواست‌ها غیرفعال",
+  }[realtimeStatus] || "حالت پشتیبان فعال";
 
   return (
     <div className="space-y-6" dir="rtl">
@@ -166,19 +152,43 @@ export default function AdminPage() {
             </button>
           )}
           {browserNotificationState === "granted" && (
-            <span className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-300">
-              اعلان مرورگر فعال است
-            </span>
+            <>
+              <span className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-300">
+                اعلان مرورگر فعال است
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  void showAppNotification("آزمایش اعلان MohammadOS", {
+                    body: "اعلان مرورگر فعال است.",
+                    tag: "mohammados-notification-test",
+                  }).then((shown) => {
+                    if (!shown) setCopyNotice("اعلان نمایش داده نشد؛ مجوز مرورگر را بررسی کنید.");
+                  });
+                }}
+                className="rounded-lg border border-os-border px-3 py-2 text-[11px] text-os-text/70 hover:border-os-accent hover:text-os-accent"
+              >
+                آزمایش اعلان
+              </button>
+            </>
           )}
           {browserNotificationState === "denied" && (
             <span className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
               اعلان مرورگر مسدود است؛ از تنظیمات مرورگر اجازه دهید.
             </span>
           )}
+          <span className="rounded-lg border border-os-border/70 px-3 py-2 text-[10px] text-os-text/50">
+            {realtimeLabel}
+          </span>
         </div>
       </header>
 
       {error && <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-300" role="alert">{error}</div>}
+      {requestLoadError && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-300" role="alert">
+          دریافت درخواست‌ها با خطا روبه‌رو شد؛ حالت پشتیبان همچنان فعال است.
+        </div>
+      )}
       {liveNotice && (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-os-accent/50 bg-os-accent/10 p-3 text-xs text-os-accent" role="status" aria-live="polite">
           <span>درخواست جدید از طرف «{liveNotice.displayName}» دریافت شد.</span>

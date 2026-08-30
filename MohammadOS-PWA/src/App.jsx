@@ -17,7 +17,8 @@ import { ProfileService } from "./auth/ProfileService";
 import LoginPage from "./auth/LoginPage";
 import HelpModal from "./components/HelpModal";
 import { DEFAULT_HELP_CONTENT, HELP_CONTENT } from "./content/helpContent";
-import { supabase } from "./auth/supabaseClient";
+import { useAccessRequestMonitor } from "./auth/useAccessRequestMonitor";
+import { showAppNotification } from "./utils/notifications";
 
 const TodayPage = lazy(() => import("./pages/TodayPage"));
 const SchedulePage = lazy(() => import("./pages/SchedulePage"));
@@ -164,6 +165,23 @@ function AuthenticatedAppLayout() {
   const isOnline = useOnlineStatus();
   const helpContent = HELP_CONTENT[location.pathname] || DEFAULT_HELP_CONTENT;
 
+  const handleIncomingAccessRequest = useCallback((request) => {
+    const displayName = request?.display_name || "کاربر جدید";
+    setAccessRequestNotification({
+      id: request?.id || Date.now(),
+      displayName,
+    });
+    void showAppNotification("درخواست حساب جدید", {
+      body: `${displayName} درخواست ورود به MohammadOS را ارسال کرد.`,
+      tag: `global-access-request-${request?.id || "new"}`,
+    });
+  }, []);
+
+  const { requests: pendingAccessRequests } = useAccessRequestMonitor({
+    enabled: role === "owner" && location.pathname !== "/admin",
+    onNewRequest: handleIncomingAccessRequest,
+  });
+
   const navigateWithTransition = useCallback((path) => {
     if (document.startViewTransition) {
       document.startViewTransition(() => navigate(path));
@@ -248,40 +266,6 @@ function AuthenticatedAppLayout() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isNotifOpen]);
 
-  useEffect(() => {
-    if (role !== "owner" || !supabase || location.pathname === "/admin") return undefined;
-
-    const channel = supabase
-      .channel("owner-global-access-requests")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "access_requests", filter: "status=eq.pending" },
-        (payload) => {
-          const request = payload.new;
-          const displayName = request?.display_name || "کاربر جدید";
-          setAccessRequestNotification({
-            id: request?.id || Date.now(),
-            displayName,
-          });
-          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-            try {
-              new Notification("درخواست حساب جدید", {
-                body: `${displayName} درخواست ورود به MohammadOS را ارسال کرد.`,
-                tag: `global-access-request-${request?.id || "new"}`,
-              });
-            } catch {
-              // A browser can still reject notifications after permission was granted.
-            }
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [role, location.pathname]);
-
   const handlePrefetch = useCallback((path) => {
     const prefetch = pagePrefetchers[path];
     if (prefetch) prefetch();
@@ -336,8 +320,19 @@ function AuthenticatedAppLayout() {
         actionLabel: "بررسی درخواست",
       });
     }
+    if (role === "owner" && pendingAccessRequests.length > 0) {
+      notifs.push({
+        id: "pending-access-requests",
+        icon: "📬",
+        title: `${pendingAccessRequests.length} درخواست در انتظار بررسی`,
+        desc: "درخواست‌های عضویت هنوز در پنل مدیریت بررسی نشده‌اند.",
+        type: "warning",
+        action: () => navigate("/admin"),
+        actionLabel: "باز کردن پنل",
+      });
+    }
     return notifs;
-  }, [notifData, handleQuickBackup, releaseNotification, accessRequestNotification, navigate]);
+  }, [notifData, handleQuickBackup, releaseNotification, accessRequestNotification, pendingAccessRequests.length, role, navigate]);
 
   const hasUnread = notifications.some(n => n.type === "critical" || n.type === "warning" || n.type === "success");
 
@@ -645,6 +640,28 @@ function AuthenticatedAppLayout() {
                 بستن
               </button>
             </div>
+          </div>
+        )}
+
+        {role === "owner" && pendingAccessRequests.length > 0 && location.pathname !== "/admin" && (
+          <div
+            className="mx-4 mt-2 md:mx-8 md:mt-3 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 flex items-center justify-between gap-3 shrink-0 animate-fade-in"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="min-w-0">
+              <p className="text-xs text-amber-300 font-bold">📬 درخواست عضویت در انتظار بررسی</p>
+              <p className="text-[10px] text-os-text/60 mt-1">
+                {pendingAccessRequests.length} درخواست در پنل مدیریت منتظر تصمیم شماست.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate("/admin")}
+              className="shrink-0 text-[10px] text-amber-300 border border-amber-500/40 rounded px-2 py-1 hover:bg-amber-500/10"
+            >
+              بررسی
+            </button>
           </div>
         )}
 
