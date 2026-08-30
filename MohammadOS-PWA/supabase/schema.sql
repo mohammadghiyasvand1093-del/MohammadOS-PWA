@@ -23,6 +23,47 @@ alter table public.profiles
   add column if not exists last_login_at timestamptz,
   add column if not exists last_seen_at timestamptz;
 
+-- Automatically create a guest profile when an Auth user is created.
+-- The owner can promote or rename the profile later. This avoids a second
+-- manual INSERT after creating a user in Authentication > Users.
+create or replace function public.handle_new_auth_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (
+    id,
+    email,
+    display_name,
+    role,
+    is_active,
+    profile_setup_completed
+  )
+  values (
+    new.id,
+    coalesce(new.email, ''),
+    left(coalesce(new.raw_user_meta_data ->> 'display_name', ''), 80),
+    'guest',
+    true,
+    false
+  )
+  on conflict (id) do update
+  set email = excluded.email,
+      updated_at = now();
+
+  return new;
+end;
+$$;
+
+revoke all on function public.handle_new_auth_user() from public;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_auth_user();
+
 alter table public.profiles enable row level security;
 
 grant select on public.profiles to authenticated;
@@ -144,6 +185,15 @@ create table if not exists public.access_requests (
 );
 
 alter table public.access_requests enable row level security;
+
+-- Enable live INSERT events for the owner panel.
+do $$
+begin
+  alter publication supabase_realtime add table public.access_requests;
+exception
+  when duplicate_object then null;
+end;
+$$;
 
 create unique index if not exists access_requests_one_pending_email
   on public.access_requests (lower(email))

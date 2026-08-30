@@ -24,7 +24,9 @@ export const AccessRequestService = {
     if (error) {
       const message = error.code === "23505"
         ? "برای این ایمیل یک درخواست در حال بررسی وجود دارد."
-        : error.message;
+        : error.code === "42P01" || error.code === "PGRST205"
+          ? "سامانه درخواست‌ها هنوز در Supabase آماده نشده است."
+          : "ارسال درخواست انجام نشد؛ دوباره تلاش کنید.";
       return { request: null, error: new Error(message) };
     }
     return { request: data, error: null };

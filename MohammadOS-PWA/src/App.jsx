@@ -17,6 +17,7 @@ import { ProfileService } from "./auth/ProfileService";
 import LoginPage from "./auth/LoginPage";
 import HelpModal from "./components/HelpModal";
 import { DEFAULT_HELP_CONTENT, HELP_CONTENT } from "./content/helpContent";
+import { supabase } from "./auth/supabaseClient";
 
 const TodayPage = lazy(() => import("./pages/TodayPage"));
 const SchedulePage = lazy(() => import("./pages/SchedulePage"));
@@ -140,6 +141,7 @@ function AuthenticatedAppLayout() {
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [notifData, setNotifData] = useState(null);
   const [releaseNotification, setReleaseNotification] = useState(readReleaseNotification);
+  const [accessRequestNotification, setAccessRequestNotification] = useState(null);
   
   const mainRef = useRef(null);
   const notifRef = useRef(null);
@@ -246,6 +248,40 @@ function AuthenticatedAppLayout() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isNotifOpen]);
 
+  useEffect(() => {
+    if (role !== "owner" || !supabase || location.pathname === "/admin") return undefined;
+
+    const channel = supabase
+      .channel("owner-global-access-requests")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "access_requests", filter: "status=eq.pending" },
+        (payload) => {
+          const request = payload.new;
+          const displayName = request?.display_name || "کاربر جدید";
+          setAccessRequestNotification({
+            id: request?.id || Date.now(),
+            displayName,
+          });
+          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+            try {
+              new Notification("درخواست حساب جدید", {
+                body: `${displayName} درخواست ورود به MohammadOS را ارسال کرد.`,
+                tag: `global-access-request-${request?.id || "new"}`,
+              });
+            } catch {
+              // A browser can still reject notifications after permission was granted.
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [role, location.pathname]);
+
   const handlePrefetch = useCallback((path) => {
     const prefetch = pagePrefetchers[path];
     if (prefetch) prefetch();
@@ -263,9 +299,8 @@ function AuthenticatedAppLayout() {
   }, [backupLoading]);
 
   const notifications = useMemo(() => {
-    if (!notifData) return [];
     const notifs = [];
-    if (releaseNotification) {
+    if (notifData && releaseNotification) {
       const activatedAt = new Intl.DateTimeFormat("fa-IR", {
         hour: "2-digit",
         minute: "2-digit",
@@ -280,13 +315,29 @@ function AuthenticatedAppLayout() {
         actionLabel: "متوجه شدم",
       });
     }
-    if (notifData.daysSinceBackup === Infinity) notifs.push({ id: "backup_none", icon: "📦", title: "بکاپ گرفته نشده", desc: "هنوز هیچ بکاپی از داده‌ها ندارید.", type: "critical", action: handleQuickBackup, actionLabel: "بکاپ فوری" });
-    else if (notifData.daysSinceBackup >= 7) notifs.push({ id: "backup_stale", icon: "⚠️", title: "بکاپ قدیمی", desc: `${notifData.daysSinceBackup} روز از آخرین بکاپ می‌گذرد.`, type: "warning", action: handleQuickBackup, actionLabel: "بکاپ فوری" });
-    if (notifData.streak > 0) notifs.push({ id: "streak", icon: "🔥", title: `استریک ${notifData.streak} روزه`, desc: notifData.todayRate < 50 && !notifData.hasActiveTimer ? "امروز در خطر قطع است!" : "در حال حفظ استریک هستی.", type: notifData.todayRate < 50 && !notifData.hasActiveTimer ? "warning" : "info" });
-    if (notifData.graceUsed >= 2) notifs.push({ id: "grace", icon: "❄️", title: `Grace Days: ${notifData.graceUsed}/2`, desc: "سقف ماهانه پر شده است.", type: "warning" });
-    if (notifData.hasActiveTimer) notifs.push({ id: "timer", icon: "⏱️", title: "تایمر فعال است", desc: "در حال اجرای ماموریت هستی.", type: "info" });
+    if (notifData) {
+      if (notifData.daysSinceBackup === Infinity) notifs.push({ id: "backup_none", icon: "📦", title: "بکاپ گرفته نشده", desc: "هنوز هیچ بکاپی از داده‌ها ندارید.", type: "critical", action: handleQuickBackup, actionLabel: "بکاپ فوری" });
+      else if (notifData.daysSinceBackup >= 7) notifs.push({ id: "backup_stale", icon: "⚠️", title: "بکاپ قدیمی", desc: `${notifData.daysSinceBackup} روز از آخرین بکاپ می‌گذرد.`, type: "warning", action: handleQuickBackup, actionLabel: "بکاپ فوری" });
+      if (notifData.streak > 0) notifs.push({ id: "streak", icon: "🔥", title: `استریک ${notifData.streak} روزه`, desc: notifData.todayRate < 50 && !notifData.hasActiveTimer ? "امروز در خطر قطع است!" : "در حال حفظ استریک هستی.", type: notifData.todayRate < 50 && !notifData.hasActiveTimer ? "warning" : "info" });
+      if (notifData.graceUsed >= 2) notifs.push({ id: "grace", icon: "❄️", title: `Grace Days: ${notifData.graceUsed}/2`, desc: "سقف ماهانه پر شده است.", type: "warning" });
+      if (notifData.hasActiveTimer) notifs.push({ id: "timer", icon: "⏱️", title: "تایمر فعال است", desc: "در حال اجرای ماموریت هستی.", type: "info" });
+    }
+    if (accessRequestNotification) {
+      notifs.push({
+        id: `access-request-${accessRequestNotification.id}`,
+        icon: "📩",
+        title: "درخواست حساب جدید",
+        desc: `درخواست ورود از طرف «${accessRequestNotification.displayName}» دریافت شد.`,
+        type: "success",
+        action: () => {
+          setAccessRequestNotification(null);
+          navigate("/admin");
+        },
+        actionLabel: "بررسی درخواست",
+      });
+    }
     return notifs;
-  }, [notifData, handleQuickBackup, releaseNotification]);
+  }, [notifData, handleQuickBackup, releaseNotification, accessRequestNotification, navigate]);
 
   const hasUnread = notifications.some(n => n.type === "critical" || n.type === "warning" || n.type === "success");
 
@@ -562,6 +613,38 @@ function AuthenticatedAppLayout() {
             >
               فهمیدم
             </button>
+          </div>
+        )}
+
+        {accessRequestNotification && location.pathname !== "/admin" && (
+          <div
+            className="mx-4 mt-2 md:mx-8 md:mt-3 rounded-lg border border-os-accent/50 bg-os-accent/10 p-3 flex items-center justify-between gap-3 shrink-0 animate-fade-in"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="min-w-0">
+              <p className="text-xs text-os-accent font-bold">📩 درخواست حساب جدید دریافت شد</p>
+              <p className="text-[10px] text-os-text/60 mt-1">درخواست «{accessRequestNotification.displayName}» را در پنل مدیریت بررسی کنید.</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setAccessRequestNotification(null);
+                  navigate("/admin");
+                }}
+                className="text-[10px] text-os-accent border border-os-accent/40 rounded px-2 py-1 hover:bg-os-accent/10"
+              >
+                بررسی
+              </button>
+              <button
+                type="button"
+                onClick={() => setAccessRequestNotification(null)}
+                className="text-[10px] text-os-text/50 border border-os-border rounded px-2 py-1 hover:text-os-text"
+              >
+                بستن
+              </button>
+            </div>
           </div>
         )}
 
