@@ -50,6 +50,14 @@ export default function SyncPage() {
     return () => window.clearTimeout(timer);
   }, [refresh]);
 
+  useEffect(() => {
+    const handleSyncApplied = () => {
+      void refresh();
+    };
+    window.addEventListener("mohammados:sync-applied", handleSyncApplied);
+    return () => window.removeEventListener("mohammados:sync-applied", handleSyncApplied);
+  }, [refresh]);
+
   async function runAction(action, successText) {
     if (!isOnline || busy) return;
     setBusy(action);
@@ -179,9 +187,13 @@ export default function SyncPage() {
 
         {status?.hasConflict && (
           <div className="mt-5 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
-            <p className="text-sm font-bold text-amber-300">تعارض بین این دستگاه و فضای ابری</p>
+            <p className="text-sm font-bold text-amber-300">
+              {status.localMeta ? "تعارض بین این دستگاه و فضای ابری" : "اولین اتصال این دستگاه"}
+            </p>
             <p className="mt-2 text-[11px] leading-6 text-os-text/60">
-              نسخهٔ ابری: {status.cloud?.version ?? "جدید"} — آخرین نسخهٔ پذیرفته‌شده در این دستگاه: {status.localMeta?.cloudVersion ?? "ثبت نشده"}
+              {status.localMeta
+                ? `نسخهٔ ابری: ${status.cloud?.version ?? "جدید"} — آخرین نسخهٔ پذیرفته‌شده در این دستگاه: ${status.localMeta?.cloudVersion ?? "ثبت نشده"}`
+                : "این دستگاه هنوز نسخه‌ای را قبول نکرده است؛ مشخص کن داده‌های ابری روی این دستگاه بیاید یا داده‌های این دستگاه جایگزین ابر شود."}
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <button type="button" onClick={() => void replaceLocalWithCloud()} disabled={Boolean(busy)} className="rounded border border-sky-500/50 px-3 py-2 text-[11px] text-sky-300 hover:bg-sky-500/10 disabled:opacity-40">

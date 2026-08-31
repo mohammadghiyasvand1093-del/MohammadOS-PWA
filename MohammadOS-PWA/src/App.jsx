@@ -20,6 +20,7 @@ import HelpCenterModal from "./components/HelpCenterModal";
 import { DEFAULT_HELP_CONTENT, HELP_CONTENT } from "./content/helpContent";
 import { useAccessRequestMonitor } from "./auth/useAccessRequestMonitor";
 import { showAppNotification } from "./utils/notifications";
+import { SyncService } from "./sync/SyncService";
 
 const TodayPage = lazy(() => import("./pages/TodayPage"));
 const SchedulePage = lazy(() => import("./pages/SchedulePage"));
@@ -146,6 +147,8 @@ function AuthenticatedAppLayout() {
   const [notifData, setNotifData] = useState(null);
   const [releaseNotification, setReleaseNotification] = useState(readReleaseNotification);
   const [accessRequestNotification, setAccessRequestNotification] = useState(null);
+  const [autoSyncState, setAutoSyncState] = useState("idle");
+  const syncInFlightRef = useRef(false);
   
   const mainRef = useRef(null);
   const notifRef = useRef(null);
@@ -167,6 +170,60 @@ function AuthenticatedAppLayout() {
   const { showOnboarding, onboardingStep, setOnboardingStep, handleFinishOnboarding } = useOnboarding(user?.id);
   const isOnline = useOnlineStatus();
   const helpContent = HELP_CONTENT[location.pathname] || DEFAULT_HELP_CONTENT;
+
+  useEffect(() => {
+    if (!user?.id) return undefined;
+
+    let disposed = false;
+    const runAutoSync = async () => {
+      if (disposed || syncInFlightRef.current) return;
+      if (!isOnline) {
+        setAutoSyncState("offline");
+        return;
+      }
+
+      syncInFlightRef.current = true;
+      try {
+        const result = await SyncService.autoSync(user.id);
+        if (disposed) return;
+        setAutoSyncState(result.status);
+
+        if (result.status === "pulled") {
+          window.dispatchEvent(new CustomEvent("mohammados:sync-applied", {
+            detail: { direction: "pull", version: result.cloud?.version },
+          }));
+          void showAppNotification("همگام‌سازی انجام شد", {
+            body: "نسخهٔ جدید داده‌ها از فضای ابری دریافت شد.",
+            tag: "mohammados-auto-sync-pull",
+          });
+        } else if (result.status === "conflict") {
+          void showAppNotification("تعارض همگام‌سازی", {
+            body: "گوشی و لپ‌تاپ هر دو تغییر کرده‌اند؛ برای انتخاب نسخه به بخش همگام‌سازی برو.",
+            tag: "mohammados-auto-sync-conflict",
+          });
+        }
+      } catch (error) {
+        if (!disposed) {
+          setAutoSyncState("failed");
+          console.warn("Automatic sync failed:", error);
+        }
+      } finally {
+        syncInFlightRef.current = false;
+      }
+    };
+
+    void runAutoSync();
+    const interval = window.setInterval(() => void runAutoSync(), 60_000);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") void runAutoSync();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [user?.id, isOnline]);
 
   const handleIncomingAccessRequest = useCallback((request) => {
     const displayName = request?.display_name || "کاربر جدید";
@@ -334,8 +391,63 @@ function AuthenticatedAppLayout() {
         actionLabel: "باز کردن پنل",
       });
     }
+    if (autoSyncState === "conflict") {
+      notifs.push({
+        id: "sync-conflict",
+        icon: "⚠️",
+        title: "تعارض همگام‌سازی",
+        desc: "هر دو دستگاه تغییر کرده‌اند؛ قبل از ادامه نسخهٔ درست را انتخاب کن.",
+        type: "warning",
+        action: () => navigate("/sync"),
+        actionLabel: "بررسی همگام‌سازی",
+      });
+    }
+    if (autoSyncState === "pulled") {
+      notifs.push({
+        id: "sync-pulled",
+        icon: "☁️",
+        title: "همگام‌سازی خودکار انجام شد",
+        desc: "نسخهٔ جدید داده‌ها از فضای ابری دریافت شد.",
+        type: "success",
+        action: () => navigate("/sync"),
+        actionLabel: "مشاهده وضعیت",
+      });
+    }
+    if (autoSyncState === "pushed") {
+      notifs.push({
+        id: "sync-pushed",
+        icon: "☁️",
+        title: "داده‌ها خودکار ذخیره شدند",
+        desc: "تغییرات این دستگاه در فضای ابری ثبت شد.",
+        type: "success",
+        action: () => navigate("/sync"),
+        actionLabel: "مشاهده وضعیت",
+      });
+    }
+    if (autoSyncState === "needs_setup") {
+      notifs.push({
+        id: "sync-needs-setup",
+        icon: "🔗",
+        title: "همگام‌سازی آمادهٔ شروع است",
+        desc: "برای اولین اتصال، در صفحهٔ همگام‌سازی انتخاب کن کدام نسخه اصلی باشد.",
+        type: "info",
+        action: () => navigate("/sync"),
+        actionLabel: "شروع همگام‌سازی",
+      });
+    }
+    if (autoSyncState === "failed") {
+      notifs.push({
+        id: "sync-failed",
+        icon: "⚠️",
+        title: "همگام‌سازی انجام نشد",
+        desc: "داده‌های محلی محفوظ‌اند؛ اتصال و تنظیمات Supabase را بررسی کن.",
+        type: "warning",
+        action: () => navigate("/sync"),
+        actionLabel: "بررسی مشکل",
+      });
+    }
     return notifs;
-  }, [notifData, handleQuickBackup, releaseNotification, accessRequestNotification, pendingAccessRequests.length, role, navigate]);
+  }, [notifData, handleQuickBackup, releaseNotification, accessRequestNotification, pendingAccessRequests.length, role, navigate, autoSyncState]);
 
   const hasUnread = notifications.some(n => n.type === "critical" || n.type === "warning" || n.type === "success");
 
