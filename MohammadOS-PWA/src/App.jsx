@@ -30,6 +30,7 @@ const StatusPage = lazy(() => import("./pages/StatusPage"));
 const RoadmapPage = lazy(() => import("./pages/RoadmapPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
 const DemoPage = lazy(() => import("./pages/DemoPage"));
+const SyncPage = lazy(() => import("./pages/SyncPage"));
 
 function readReleaseNotification() {
   const activeVersion = localStorage.getItem(RELEASE_STORAGE_KEYS.activeVersion);
@@ -348,6 +349,7 @@ function AuthenticatedAppLayout() {
       case "/status": return "وضعیت سیستم";
       case "/roadmap": return "نقشه راه";
       case "/admin": return "پنل مدیریت";
+      case "/sync": return "همگام‌سازی";
       default: return "MohammadOS";
     }
   };
@@ -495,6 +497,15 @@ function AuthenticatedAppLayout() {
           )}
           <button
             type="button"
+            onClick={() => navigate("/sync")}
+            className={`mb-2 rounded-lg border border-sky-500/40 text-sky-300 transition hover:bg-sky-500/10 ${collapsed ? "h-10 w-10 text-lg" : "w-full px-3 py-2 text-xs"}`}
+            aria-label="باز کردن همگام‌سازی"
+            title={collapsed ? "همگام‌سازی" : undefined}
+          >
+            {collapsed ? "⇄" : "⇄ همگام‌سازی"}
+          </button>
+          <button
+            type="button"
             onClick={() => signOut()}
             className={`rounded-lg border border-red-500/40 text-red-300 transition hover:bg-red-500/10 ${collapsed ? "h-10 w-10 text-lg" : "w-full px-3 py-2 text-xs"}`}
             aria-label="خروج از حساب"
@@ -529,6 +540,13 @@ function AuthenticatedAppLayout() {
                 مدیریت
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => navigate("/sync")}
+              className="text-[10px] text-os-text/50 hover:text-sky-300"
+            >
+              همگام‌سازی
+            </button>
             <button
               type="button"
               onClick={() => signOut()}
@@ -693,6 +711,7 @@ function AuthenticatedAppLayout() {
                 <Route path="/add" element={<AddPage />} />
                 <Route path="/status" element={<StatusPage />} />
                 <Route path="/roadmap" element={<RoadmapPage />} />
+                <Route path="/sync" element={<SyncPage />} />
                 <Route path="/admin" element={role === "owner" ? <AdminPage /> : <Navigate to="/" replace />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
