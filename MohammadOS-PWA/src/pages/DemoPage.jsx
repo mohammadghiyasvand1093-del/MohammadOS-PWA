@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import AccessRequestModal from "../auth/AccessRequestModal";
 
 const DEMO_STEPS = [
   {
@@ -173,6 +174,7 @@ const DEMO_STEPS = [
 export default function DemoPage() {
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
+  const [isRequestOpen, setIsRequestOpen] = useState(false);
   const current = DEMO_STEPS[step];
   const isLast = step === DEMO_STEPS.length - 1;
 
@@ -185,8 +187,8 @@ export default function DemoPage() {
       <div className="mx-auto max-w-3xl">
         <header className="mb-6 flex items-center justify-between gap-4">
           <div>
-            <p className="font-mono text-[10px] tracking-[0.25em] text-os-accent">MOHAMMADOS · DEMO MODE</p>
-            <h1 className="mt-2 text-2xl font-black md:text-3xl">دموی زندهٔ برنامه</h1>
+            <p className="font-mono text-[10px] tracking-[0.25em] text-os-accent">MOHAMMADOS · INTERACTIVE DEMO</p>
+            <h1 className="mt-2 text-2xl font-black md:text-3xl">دموی تعاملی برنامه</h1>
           </div>
           <button type="button" onClick={finishDemo} className="rounded-lg border border-os-border px-3 py-2 text-xs text-os-text/60 hover:border-os-accent hover:text-os-accent">
             خروج
@@ -205,6 +207,7 @@ export default function DemoPage() {
                 key={item.key}
                 type="button"
                 aria-label={`رفتن به مرحله ${index + 1}: ${item.label}`}
+                aria-current={index === step ? "step" : undefined}
                 onClick={() => setStep(index)}
                 className={`h-1.5 flex-1 rounded-full transition ${index <= step ? "bg-os-accent" : "bg-os-border"}`}
               />
@@ -228,6 +231,31 @@ export default function DemoPage() {
             <span className="font-bold text-os-accent">نکته:</span> {current.tip}
           </div>
 
+          {isLast && (
+            <section className="mb-6 rounded-2xl border border-os-accent/40 bg-os-accent/10 p-4 md:p-5" aria-labelledby="demo-next-step-title">
+              <h3 id="demo-next-step-title" className="text-base font-black text-os-accent">حالا چه کار کنی؟</h3>
+              <p className="mt-2 text-xs leading-6 text-os-text/70">
+                اگر حساب داری وارد شو؛ اگر هنوز حساب نداری، درخواستت را برای بررسی مالک ارسال کن.
+              </p>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={finishDemo}
+                  className="rounded-lg bg-os-accent px-4 py-3 text-xs font-black text-os-bg transition hover:opacity-90"
+                >
+                  ورود به حساب
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsRequestOpen(true)}
+                  className="rounded-lg border border-os-accent/60 px-4 py-3 text-xs font-bold text-os-accent transition hover:bg-os-accent/10"
+                >
+                  درخواست حساب جدید
+                </button>
+              </div>
+            </section>
+          )}
+
           <div className="flex flex-wrap items-center justify-between gap-3">
             <button type="button" onClick={finishDemo} className="text-xs text-os-text/45 hover:text-os-text">
               رد کردن دمو
@@ -242,8 +270,8 @@ export default function DemoPage() {
                 قبلی
               </button>
               {isLast ? (
-                <button type="button" onClick={() => navigate("/")} className="rounded-lg bg-os-accent px-5 py-2 text-xs font-black text-os-bg">
-                  ورود به برنامه
+                <button type="button" onClick={finishDemo} className="rounded-lg bg-os-accent px-5 py-2 text-xs font-black text-os-bg">
+                  رفتن به صفحهٔ ورود
                 </button>
               ) : (
                 <button type="button" onClick={() => setStep((value) => Math.min(DEMO_STEPS.length - 1, value + 1))} className="rounded-lg bg-os-accent px-5 py-2 text-xs font-black text-os-bg">
@@ -258,6 +286,7 @@ export default function DemoPage() {
           این دمو فقط برای آشنایی است. برای استفادهٔ واقعی باید با حساب مالک یا مهمان وارد شوید.
         </p>
       </div>
+      {isRequestOpen && <AccessRequestModal onClose={() => setIsRequestOpen(false)} />}
     </main>
   );
 }
