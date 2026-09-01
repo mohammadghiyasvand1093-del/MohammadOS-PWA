@@ -14,6 +14,7 @@ export const SYNCABLE_TABLES = [
 
 const SYNC_META_KEY = "cloud-snapshot";
 const DEVICE_ID_KEY = "mohammados_sync_device_id";
+const MAX_RETRY_DELAY_MS = 15 * 60 * 1000;
 
 function nowIso() {
   return new Date().toISOString();
@@ -110,7 +111,52 @@ async function saveLocalMeta(userId, cloudRow, action, localFingerprint) {
     localFingerprint: localFingerprint || null,
     lastAction: action,
     lastSyncedAt: nowIso(),
+    retryCount: 0,
+    nextRetryAt: null,
+    lastError: null,
   });
+}
+
+function getRetryDelayMs(retryCount) {
+  const exponent = Math.max(0, Math.min(Number(retryCount) - 1, 6));
+  const baseDelay = Math.min(MAX_RETRY_DELAY_MS, 5_000 * (2 ** exponent));
+  const jitter = Math.round(baseDelay * 0.15 * Math.random());
+  return Math.min(MAX_RETRY_DELAY_MS, baseDelay + jitter);
+}
+
+function getErrorText(error) {
+  return String(error?.message || error || "خطای ناشناختهٔ همگام‌سازی")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
+}
+
+async function clearRetryState() {
+  const localMeta = await getLocalMeta();
+  if (!localMeta?.retryCount && !localMeta?.nextRetryAt && !localMeta?.lastError) return;
+  await db.syncMeta.put({
+    ...localMeta,
+    retryCount: 0,
+    nextRetryAt: null,
+    lastError: null,
+  });
+}
+
+async function recordFailure(userId, error) {
+  const localMeta = await getLocalMeta();
+  if (localMeta?.userId && localMeta.userId !== userId) return null;
+
+  const retryCount = Number(localMeta?.retryCount || 0) + 1;
+  const retryAt = new Date(Date.now() + getRetryDelayMs(retryCount)).toISOString();
+  await db.syncMeta.put({
+    ...(localMeta || {}),
+    key: SYNC_META_KEY,
+    userId,
+    retryCount,
+    nextRetryAt: retryAt,
+    lastError: getErrorText(error),
+  });
+  return { retryCount, retryAt, error: getErrorText(error) };
 }
 
 async function getCloudSnapshot(userId) {
@@ -172,6 +218,11 @@ export const SyncService = {
       localCounts,
       localFingerprint,
       deviceId: getDeviceId(),
+      localChanged: Boolean(
+        localMeta
+        && localMeta.localFingerprint !== localFingerprint
+      ),
+      retryAt: localMeta?.nextRetryAt || null,
       hasConflict: Boolean(
         cloud
         && (!localMeta || localMeta.cloudVersion !== cloud.version)
@@ -181,6 +232,7 @@ export const SyncService = {
 
   async pushLocal(userId, { force = false } = {}) {
     assertConfigured(userId);
+    await clearRetryState();
     const [cloud, localMeta, snapshot] = await Promise.all([
       getCloudSnapshot(userId),
       getLocalMeta(),
@@ -222,6 +274,7 @@ export const SyncService = {
 
   async pullCloud(userId) {
     assertConfigured(userId);
+    await clearRetryState();
     const cloud = await getCloudSnapshot(userId);
     if (!cloud) return { status: "empty" };
     await applySnapshot(cloud.payload);
@@ -235,11 +288,24 @@ export const SyncService = {
       return { status: "offline" };
     }
 
-    const [cloud, localMeta, localSnapshot] = await Promise.all([
+    const localMeta = await getLocalMeta();
+    const retryAtMs = localMeta?.nextRetryAt
+      ? new Date(localMeta.nextRetryAt).getTime()
+      : 0;
+    if (retryAtMs > Date.now()) {
+      return {
+        status: "retry_wait",
+        retryAt: localMeta.nextRetryAt,
+        retryCount: localMeta.retryCount || 1,
+        error: localMeta.lastError || null,
+      };
+    }
+
+    const [cloud, localSnapshot] = await Promise.all([
       getCloudSnapshot(userId),
-      getLocalMeta(),
       collectSnapshot(),
     ]);
+    await clearRetryState();
     const localFingerprint = await fingerprintSnapshot(localSnapshot);
     const localChanged = Boolean(
       localMeta
@@ -285,4 +351,15 @@ export const SyncService = {
     }
     return { status: "idle", cloud };
   },
+
+  async recordFailure(userId, error) {
+    assertConfigured(userId);
+    return recordFailure(userId, error);
+  },
+
+  async clearFailure() {
+    await clearRetryState();
+  },
+
+  getRetryDelayMs,
 };

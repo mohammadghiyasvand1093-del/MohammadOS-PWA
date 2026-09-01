@@ -21,6 +21,15 @@ function getErrorMessage(error) {
   return error?.message || "عملیات همگام‌سازی انجام نشد.";
 }
 
+function getSyncState(status, isOnline) {
+  if (!isOnline) return { label: "آفلاین", tone: "text-red-300", detail: "تغییرات محلی محفوظ هستند." };
+  if (status?.hasConflict) return { label: "تعارض", tone: "text-amber-300", detail: "قبل از ادامه یکی از نسخه‌ها را انتخاب کن." };
+  if (status?.retryAt) return { label: "در انتظار تلاش دوباره", tone: "text-sky-300", detail: "خطای موقت ثبت شده است." };
+  if (status?.localChanged) return { label: "در انتظار ارسال", tone: "text-amber-300", detail: "تغییرات این دستگاه هنوز در ابر ثبت نشده‌اند." };
+  if (status?.cloud) return { label: "همگام", tone: "text-emerald-300", detail: "این دستگاه با آخرین نسخهٔ ابری هماهنگ است." };
+  return { label: "آمادهٔ اتصال", tone: "text-os-text/70", detail: "برای شروع، ارسال یا دریافت را انتخاب کن." };
+}
+
 export default function SyncPage() {
   const { user } = useAuth();
   const isOnline = useOnlineStatus();
@@ -80,6 +89,7 @@ export default function SyncPage() {
         setMessage({ type: "success", text: successText });
       }
     } catch (error) {
+      await SyncService.recordFailure(user.id, error).catch(() => {});
       setMessage({ type: "error", text: getErrorMessage(error) });
     } finally {
       setBusy("");
@@ -97,6 +107,7 @@ export default function SyncPage() {
         setMessage({ type: "success", text: "داده‌های این دستگاه به‌عنوان نسخهٔ جدید ابری ذخیره شد." });
       }
     } catch (error) {
+      await SyncService.recordFailure(user.id, error).catch(() => {});
       setMessage({ type: "error", text: getErrorMessage(error) });
     } finally {
       setBusy("");
@@ -108,9 +119,19 @@ export default function SyncPage() {
     await runAction("pull", "نسخهٔ ابری روی این دستگاه دریافت شد.");
   }
 
+  async function retryNow() {
+    await SyncService.clearFailure();
+    const action = status?.localChanged ? "push" : "pull";
+    const successText = action === "push"
+      ? "تغییرات این دستگاه در فضای ابری ذخیره شد."
+      : "نسخهٔ ابری روی این دستگاه دریافت شد.";
+    await runAction(action, successText);
+  }
+
   const totalLocalRecords = status
     ? Object.values(status.localCounts).reduce((sum, count) => sum + count, 0)
     : 0;
+  const syncState = getSyncState(status, isOnline);
 
   return (
     <div className="space-y-6" dir="rtl">
@@ -146,7 +167,12 @@ export default function SyncPage() {
         </div>
       )}
 
-      <section className="grid gap-3 sm:grid-cols-3" aria-label="خلاصه وضعیت همگام‌سازی">
+      <section className="grid gap-3 sm:grid-cols-4" aria-label="خلاصه وضعیت همگام‌سازی">
+        <div className="rounded-xl border border-os-border bg-os-card p-4">
+          <p className="text-[10px] text-os-text/45">وضعیت سینک</p>
+          <p className={`mt-2 text-sm font-bold ${syncState.tone}`}>{syncState.label}</p>
+          <p className="mt-1 text-[10px] leading-5 text-os-text/45">{syncState.detail}</p>
+        </div>
         <div className="rounded-xl border border-os-border bg-os-card p-4">
           <p className="text-[10px] text-os-text/45">وضعیت اتصال</p>
           <p className={`mt-2 text-sm font-bold ${isOnline ? "text-emerald-300" : "text-red-300"}`}>
@@ -212,8 +238,26 @@ export default function SyncPage() {
         <div className="mt-3 space-y-2 text-[11px] text-os-text/55">
           <p>آخرین همگام‌سازی این دستگاه: <span className="text-os-text/80">{formatDate(status?.localMeta?.lastSyncedAt)}</span></p>
           <p>آخرین تغییر ابری: <span className="text-os-text/80">{formatDate(status?.cloud?.updated_at)}</span></p>
+          {status?.retryAt && (
+            <p>
+              تلاش دوباره: <span className="text-sky-300">{formatDate(status.retryAt)}</span>
+              {status.localMeta?.lastError && (
+                <span className="block mt-1 text-red-300/80">علت: {status.localMeta.lastError}</span>
+              )}
+            </p>
+          )}
           <p>شناسهٔ این دستگاه: <span className="select-text break-all text-os-text/50" dir="ltr">{status?.deviceId || "..."}</span></p>
         </div>
+        {status?.retryAt && (
+          <button
+            type="button"
+            onClick={() => void retryNow()}
+            disabled={Boolean(busy) || !isOnline}
+            className="mt-4 rounded-lg border border-sky-500/50 px-3 py-2 text-[11px] text-sky-300 hover:bg-sky-500/10 disabled:opacity-40"
+          >
+            تلاش دوباره الآن
+          </button>
+        )}
         <p className="mt-4 rounded-lg border border-os-border/60 bg-os-bg/50 p-3 text-[11px] leading-6 text-os-text/50">
           نکته: این مرحله پشتیبان و تعارض‌سنج امن است؛ تایمر فعال، پیش‌نویس‌ها، تاریخچهٔ Import و داده‌های موقت دستگاه عمداً همگام نمی‌شوند.
         </p>

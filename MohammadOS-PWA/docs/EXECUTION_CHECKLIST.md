@@ -36,11 +36,17 @@
 
 ## Phase 3 — sync
 
-- [ ] Add stable `client_id`.
+- [x] Add stable `client_id`.
+- [x] Add automatic snapshot sync with explicit first-device setup and conflict
+  protection.
+- [x] Add retry backoff metadata for temporary cloud failures.
+- [x] Show synced, pending, offline, retry-wait, conflict, and failed states.
+- [x] Refresh the active app after an automatic cloud pull.
+- [ ] Migrate from snapshot sync to record-level atomic domain-write + outbox.
 - [ ] Add atomic domain-write + outbox-write helpers.
-- [ ] Add retry with backoff and an offline queue.
+- [ ] Add record-level retry queue with backoff and offline mutation delivery.
 - [ ] Add tombstones for deletions.
-- [ ] Add a visible sync state: synced, pending, offline, conflict, failed.
+- [ ] Add record-level conflict resolution and tombstone acknowledgement.
 - [ ] Migrate existing Dexie data only after a local backup is verified.
 - [ ] Test two devices editing the same record.
 

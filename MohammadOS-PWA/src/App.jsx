@@ -32,6 +32,7 @@ const RoadmapPage = lazy(() => import("./pages/RoadmapPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
 const DemoPage = lazy(() => import("./pages/DemoPage"));
 const SyncPage = lazy(() => import("./pages/SyncPage"));
+const SYNC_NOTICE_STORAGE_KEY = "mohammados_sync_notice";
 
 function readReleaseNotification() {
   const activeVersion = localStorage.getItem(RELEASE_STORAGE_KEYS.activeVersion);
@@ -56,6 +57,17 @@ function readReleaseNotification() {
   localStorage.setItem(RELEASE_STORAGE_KEYS.activeVersion, RELEASE_INFO.version);
   localStorage.removeItem(RELEASE_STORAGE_KEYS.pendingUpdate);
   return notification;
+}
+
+function readSyncNotice() {
+  const rawNotice = localStorage.getItem(SYNC_NOTICE_STORAGE_KEY);
+  if (!rawNotice) return null;
+  localStorage.removeItem(SYNC_NOTICE_STORAGE_KEY);
+  try {
+    return JSON.parse(rawNotice);
+  } catch {
+    return null;
+  }
 }
 
 function PageLoader() {
@@ -146,9 +158,11 @@ function AuthenticatedAppLayout() {
   const [isHelpCenterOpen, setIsHelpCenterOpen] = useState(false);
   const [notifData, setNotifData] = useState(null);
   const [releaseNotification, setReleaseNotification] = useState(readReleaseNotification);
+  const [syncNotice, setSyncNotice] = useState(readSyncNotice);
   const [accessRequestNotification, setAccessRequestNotification] = useState(null);
   const [autoSyncState, setAutoSyncState] = useState("idle");
   const syncInFlightRef = useRef(false);
+  const syncRetryTimeoutRef = useRef(null);
   
   const mainRef = useRef(null);
   const notifRef = useRef(null);
@@ -192,19 +206,38 @@ function AuthenticatedAppLayout() {
           window.dispatchEvent(new CustomEvent("mohammados:sync-applied", {
             detail: { direction: "pull", version: result.cloud?.version },
           }));
+          localStorage.setItem(SYNC_NOTICE_STORAGE_KEY, JSON.stringify({
+            type: "pulled",
+            version: result.cloud?.version || null,
+            occurredAt: new Date().toISOString(),
+          }));
           void showAppNotification("همگام‌سازی انجام شد", {
             body: "نسخهٔ جدید داده‌ها از فضای ابری دریافت شد.",
             tag: "mohammados-auto-sync-pull",
           });
+          window.setTimeout(() => {
+            if (!disposed) window.location.reload();
+          }, 250);
         } else if (result.status === "conflict") {
           void showAppNotification("تعارض همگام‌سازی", {
             body: "گوشی و لپ‌تاپ هر دو تغییر کرده‌اند؛ برای انتخاب نسخه به بخش همگام‌سازی برو.",
             tag: "mohammados-auto-sync-conflict",
           });
+        } else if (result.status === "retry_wait" && result.retryAt) {
+          const delay = Math.max(1000, new Date(result.retryAt).getTime() - Date.now());
+          window.clearTimeout(syncRetryTimeoutRef.current);
+          syncRetryTimeoutRef.current = window.setTimeout(() => void runAutoSync(), delay);
         }
       } catch (error) {
         if (!disposed) {
           setAutoSyncState("failed");
+          const retry = await SyncService.recordFailure(user.id, error).catch(() => null);
+          if (retry?.retryAt) {
+            setAutoSyncState("retry_wait");
+            const delay = Math.max(1000, new Date(retry.retryAt).getTime() - Date.now());
+            window.clearTimeout(syncRetryTimeoutRef.current);
+            syncRetryTimeoutRef.current = window.setTimeout(() => void runAutoSync(), delay);
+          }
           console.warn("Automatic sync failed:", error);
         }
       } finally {
@@ -221,6 +254,7 @@ function AuthenticatedAppLayout() {
     return () => {
       disposed = true;
       window.clearInterval(interval);
+      window.clearTimeout(syncRetryTimeoutRef.current);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [user?.id, isOnline]);
@@ -413,6 +447,20 @@ function AuthenticatedAppLayout() {
         actionLabel: "مشاهده وضعیت",
       });
     }
+    if (syncNotice?.type === "pulled" && autoSyncState !== "pulled") {
+      notifs.push({
+        id: "sync-pulled-after-reload",
+        icon: "☁️",
+        title: "همگام‌سازی انجام شد",
+        desc: "نسخهٔ جدید داده‌ها از فضای ابری دریافت و روی این دستگاه فعال شد.",
+        type: "success",
+        action: () => {
+          setSyncNotice(null);
+          navigate("/sync");
+        },
+        actionLabel: "مشاهده وضعیت",
+      });
+    }
     if (autoSyncState === "pushed") {
       notifs.push({
         id: "sync-pushed",
@@ -446,8 +494,19 @@ function AuthenticatedAppLayout() {
         actionLabel: "بررسی مشکل",
       });
     }
+    if (autoSyncState === "retry_wait") {
+      notifs.push({
+        id: "sync-retry-wait",
+        icon: "↻",
+        title: "تلاش دوباره برای همگام‌سازی برنامه‌ریزی شد",
+        desc: "خطای موقت ثبت شده و برنامه بعداً دوباره اتصال را امتحان می‌کند.",
+        type: "info",
+        action: () => navigate("/sync"),
+        actionLabel: "مشاهده وضعیت",
+      });
+    }
     return notifs;
-  }, [notifData, handleQuickBackup, releaseNotification, accessRequestNotification, pendingAccessRequests.length, role, navigate, autoSyncState]);
+  }, [notifData, handleQuickBackup, releaseNotification, syncNotice, accessRequestNotification, pendingAccessRequests.length, role, navigate, autoSyncState]);
 
   const hasUnread = notifications.some(n => n.type === "critical" || n.type === "warning" || n.type === "success");
 
