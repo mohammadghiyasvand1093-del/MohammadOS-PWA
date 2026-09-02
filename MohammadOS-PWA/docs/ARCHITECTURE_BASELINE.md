@@ -68,6 +68,13 @@ base_version, client_id, created_at, attempt_count,
 next_retry_at, status
 ```
 
+The current transition bridge records selected repository mutations in a local
+Dexie outbox while snapshot sync remains the active cloud transport. It does
+not record snapshot application or import operations, and a successful
+snapshot push or pull clears the bridge queue. Record-level delivery,
+server-side tombstones, and conflict resolution remain disabled until they are
+implemented and tested as one protocol.
+
 Conflict policy is domain-aware:
 
 - ordinary settings: server version wins;

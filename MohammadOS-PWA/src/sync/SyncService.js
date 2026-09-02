@@ -1,5 +1,6 @@
 import { db } from "../db/database";
 import { isSupabaseConfigured, supabase } from "../auth/supabaseClient";
+import { clearOutbox, getClientId, getOutboxSummary } from "./SyncOutbox";
 
 export const SYNCABLE_TABLES = [
   "habits",
@@ -13,7 +14,6 @@ export const SYNCABLE_TABLES = [
 ];
 
 const SYNC_META_KEY = "cloud-snapshot";
-const DEVICE_ID_KEY = "mohammados_sync_device_id";
 const MAX_RETRY_DELAY_MS = 15 * 60 * 1000;
 
 function nowIso() {
@@ -52,14 +52,7 @@ async function fingerprintSnapshot(snapshot) {
 }
 
 function getDeviceId() {
-  const existing = localStorage.getItem(DEVICE_ID_KEY);
-  if (existing) return existing;
-
-  const generated = typeof crypto?.randomUUID === "function"
-    ? crypto.randomUUID()
-    : `device-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  localStorage.setItem(DEVICE_ID_KEY, generated);
-  return generated;
+  return getClientId();
 }
 
 function assertConfigured(userId) {
@@ -204,11 +197,12 @@ export const SyncService = {
 
   async getStatus(userId) {
     assertConfigured(userId);
-    const [cloud, localMeta, localSnapshot, localCounts] = await Promise.all([
+    const [cloud, localMeta, localSnapshot, localCounts, outbox] = await Promise.all([
       getCloudSnapshot(userId),
       getLocalMeta(),
       collectSnapshot(),
       getLocalSummary(),
+      getOutboxSummary(),
     ]);
     const localFingerprint = await fingerprintSnapshot(localSnapshot);
 
@@ -218,6 +212,7 @@ export const SyncService = {
       localCounts,
       localFingerprint,
       deviceId: getDeviceId(),
+      outbox,
       localChanged: Boolean(
         localMeta
         && localMeta.localFingerprint !== localFingerprint
@@ -269,6 +264,7 @@ export const SyncService = {
     const saved = normalizeRpcRow(data);
     if (!saved) throw new Error("پاسخ ذخیرهٔ ابری ناقص بود.");
     await saveLocalMeta(userId, saved, "push", localFingerprint);
+    await clearOutbox();
     return { status: "synced", cloud: saved };
   },
 
@@ -279,6 +275,7 @@ export const SyncService = {
     if (!cloud) return { status: "empty" };
     await applySnapshot(cloud.payload);
     await saveLocalMeta(userId, cloud, "pull", await fingerprintSnapshot(cloud.payload));
+    await clearOutbox();
     return { status: "synced", cloud };
   },
 
@@ -330,6 +327,7 @@ export const SyncService = {
     if (remoteChanged && !localChanged) {
       await applySnapshot(cloud.payload);
       await saveLocalMeta(userId, cloud, "auto-pull", await fingerprintSnapshot(cloud.payload));
+      await clearOutbox();
       return { status: "pulled", cloud };
     }
     if (localChanged && !remoteChanged) {
@@ -347,6 +345,7 @@ export const SyncService = {
       const saved = normalizeRpcRow(data);
       if (!saved) throw new Error("پاسخ ذخیرهٔ ابری ناقص بود.");
       await saveLocalMeta(userId, saved, "auto-push", localFingerprint);
+      await clearOutbox();
       return { status: "pushed", cloud: saved };
     }
     return { status: "idle", cloud };

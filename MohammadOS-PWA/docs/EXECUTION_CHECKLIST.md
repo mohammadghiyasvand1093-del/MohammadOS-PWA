@@ -43,7 +43,9 @@
 - [x] Show synced, pending, offline, retry-wait, conflict, and failed states.
 - [x] Refresh the active app after an automatic cloud pull.
 - [ ] Migrate from snapshot sync to record-level atomic domain-write + outbox.
-- [ ] Add atomic domain-write + outbox-write helpers.
+- [x] Add the local outbox table and atomic helper contract as a transition bridge.
+- [x] Record habit, schedule, gate, course, day-log, and life-wheel mutations in the local outbox.
+- [x] Show the local outbox count on the Sync page.
 - [ ] Add record-level retry queue with backoff and offline mutation delivery.
 - [ ] Add tombstones for deletions.
 - [ ] Add record-level conflict resolution and tombstone acknowledgement.

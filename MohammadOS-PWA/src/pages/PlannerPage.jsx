@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { ScheduleRepository } from "../repositories/ScheduleRepository";
+import { GateRepository } from "../repositories/GateRepository";
 import { db } from "../db/database";
 import { toPersianDate, nowMs, getLocalDateKey } from "../utils/date";
 import { importDatedSchedule, importWeeklySchedule } from "../app/ImportService";
@@ -213,7 +214,7 @@ export default function PlannerPage() {
           };
           const existing = await db.gates.get(gate.id);
           if (!existing) {
-            await db.gates.put(gate);
+            await GateRepository.saveGate(gate);
             importedCount++;
           }
         }

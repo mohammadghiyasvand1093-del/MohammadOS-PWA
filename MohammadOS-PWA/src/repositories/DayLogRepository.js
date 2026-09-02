@@ -11,6 +11,7 @@ import {
   calculateDayLogMetrics,
   calculateHabitUpdates
 } from "../domain/logCalculator";
+import { enqueueMutation } from "../sync/SyncOutbox";
 
 const DEFAULT_SEED_SCHEDULE = {
   sunday: { schedule: [{ title: "Focus Work", type: "fixed", startTime: "09:00", endTime: "11:00" }] },
@@ -160,6 +161,12 @@ async function syncHabitEntriesIntoDayLog(dayLog) {
   };
 
   await db.dayLogs.put(updated);
+  await enqueueMutation({
+    entity: "dayLogs",
+    entityId: updated.date,
+    payload: updated,
+    baseVersion: dayLog.syncVersion,
+  });
   return updated;
 }
 
@@ -186,8 +193,20 @@ async function lazyMigrateDayLog(dayLog) {
 
     if (dayLog.date !== dateKey) {
       await db.dayLogs.delete(dayLog.date);
+      await enqueueMutation({
+        entity: "dayLogs",
+        entityId: dayLog.date,
+        operation: "delete",
+        payload: { id: dayLog.date },
+      });
     }
     await db.dayLogs.put(migrated);
+    await enqueueMutation({
+      entity: "dayLogs",
+      entityId: migrated.date,
+      payload: migrated,
+      baseVersion: dayLog.syncVersion,
+    });
 
     return migrated;
   }
@@ -199,7 +218,7 @@ export const DayLogRepository = {
   async getOrCreateByDate(dateStr, dayOfWeekInput) {
     const dateKey = normalizeToDateKey(dateStr);
 
-    return db.transaction("rw", db.dayLogs, db.habits, db.schedules, async () => {
+    return db.transaction("rw", db.dayLogs, db.habits, db.schedules, db.syncOutbox, async () => {
       let dayLog = await db.dayLogs.get(dateKey);
 
       if (dayLog) {
@@ -249,6 +268,11 @@ export const DayLogRepository = {
       };
 
       await db.dayLogs.put(dayLog);
+      await enqueueMutation({
+        entity: "dayLogs",
+        entityId: dayLog.date,
+        payload: dayLog,
+      });
       return dayLog;
     });
   },
@@ -279,8 +303,14 @@ export const DayLogRepository = {
 
     let savedDayLog = finalDayLog;
 
-    await db.transaction("rw", db.dayLogs, db.habits, async () => {
+    await db.transaction("rw", db.dayLogs, db.habits, db.syncOutbox, async () => {
       await db.dayLogs.put(finalDayLog);
+      await enqueueMutation({
+        entity: "dayLogs",
+        entityId: finalDayLog.date,
+        payload: finalDayLog,
+        baseVersion: dayLog.syncVersion,
+      });
 
       const hasHabitEntries = finalDayLog.entries.some(
         (entry) => entry.category === "habit" && entry.refId
@@ -296,6 +326,13 @@ export const DayLogRepository = {
 
       for (const update of habitUpdates) {
         await db.habits.update(update.id, update);
+        const currentHabit = allHabits.find((habit) => habit.id === update.id);
+        await enqueueMutation({
+          entity: "habits",
+          entityId: update.id,
+          payload: { ...currentHabit, ...update },
+          baseVersion: currentHabit?.syncVersion,
+        });
       }
 
       savedDayLog = finalDayLog;
@@ -306,7 +343,7 @@ export const DayLogRepository = {
 
   async freezeDay(dateStr) {
     const dateKey = normalizeToDateKey(dateStr);
-    return db.transaction("rw", db.dayLogs, async () => {
+    return db.transaction("rw", db.dayLogs, db.syncOutbox, async () => {
       let dayLog = await db.dayLogs.get(dateKey);
       if (!dayLog) return false;
 
@@ -324,13 +361,19 @@ export const DayLogRepository = {
       dayLog.updatedAt = new Date().toISOString();
 
       await db.dayLogs.put(dayLog);
+      await enqueueMutation({
+        entity: "dayLogs",
+        entityId: dayLog.date,
+        payload: dayLog,
+        baseVersion: dayLog.syncVersion,
+      });
       return true;
     });
   },
 
   async unfreezeDay(dateStr) {
     const dateKey = normalizeToDateKey(dateStr);
-    return db.transaction("rw", db.dayLogs, async () => {
+    return db.transaction("rw", db.dayLogs, db.syncOutbox, async () => {
       let dayLog = await db.dayLogs.get(dateKey);
       if (!dayLog) return false;
 
@@ -343,6 +386,12 @@ export const DayLogRepository = {
       dayLog.fullDayScore = fullDayScore;
 
       await db.dayLogs.put(dayLog);
+      await enqueueMutation({
+        entity: "dayLogs",
+        entityId: dayLog.date,
+        payload: dayLog,
+        baseVersion: dayLog.syncVersion,
+      });
       return true;
     });
   },

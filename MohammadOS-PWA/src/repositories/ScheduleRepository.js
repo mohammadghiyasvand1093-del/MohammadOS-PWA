@@ -8,6 +8,7 @@ import {
   isDateKey,
 } from "../utils/schedule";
 import { getDayEnFromDateKey, getLocalDateKey } from "../utils/date";
+import { enqueueMutation, enqueueMutations } from "../sync/SyncOutbox";
 
 function validateBlocks(scheduleData) {
   if (!Array.isArray(scheduleData)) {
@@ -64,7 +65,15 @@ export const ScheduleRepository = {
       updatedAt: new Date().toISOString(),
     };
 
-    await db.schedules.put(record);
+    await db.transaction("rw", [db.schedules, db.syncOutbox], async () => {
+      await db.schedules.put(record);
+      await enqueueMutation({
+        entity: "schedules",
+        entityId: record.id,
+        payload: record,
+        baseVersion: record.syncVersion,
+      }, db.syncOutbox);
+    });
     return record;
   },
 
@@ -102,9 +111,27 @@ export const ScheduleRepository = {
         updatedAt: now,
       };
     });
-    await db.transaction("rw", db.schedules, async () => {
+    await db.transaction("rw", [db.schedules, db.syncOutbox], async () => {
+      const previousRecords = await db.schedules.where("planId").equals(planId).toArray();
       await db.schedules.where("planId").equals(planId).delete();
+      for (const previous of previousRecords) {
+        await enqueueMutation({
+          entity: "schedules",
+          entityId: previous.id,
+          operation: "delete",
+          payload: { id: previous.id, planId },
+        }, db.syncOutbox);
+      }
       await db.schedules.bulkPut(records);
+      await enqueueMutations(
+        records.map((record) => ({
+          entity: "schedules",
+          entityId: record.id,
+          payload: record,
+          baseVersion: record.syncVersion,
+        })),
+        db.syncOutbox
+      );
     });
     return { planId, startDate, endDate, days: records.length, totalBlocks: records.reduce((sum, day) => sum + day.schedule.length, 0) };
   },
@@ -117,7 +144,19 @@ export const ScheduleRepository = {
   },
 
   async deleteDatedPlan(planId) {
-    if (planId) await db.schedules.where("planId").equals(planId).delete();
+    if (!planId) return;
+    await db.transaction("rw", [db.schedules, db.syncOutbox], async () => {
+      const records = await db.schedules.where("planId").equals(planId).toArray();
+      await db.schedules.where("planId").equals(planId).delete();
+      for (const record of records) {
+        await enqueueMutation({
+          entity: "schedules",
+          entityId: record.id,
+          operation: "delete",
+          payload: { id: record.id, planId },
+        }, db.syncOutbox);
+      }
+    });
   },
 
   async getDaySchedule(dayOfWeek) {
@@ -180,7 +219,15 @@ export const ScheduleRepository = {
     if (!id || typeof id !== 'string') {
       throw new Error('Invalid id: must be a non-empty string');
     }
-    await db.schedules.delete(id);
+    await db.transaction("rw", [db.schedules, db.syncOutbox], async () => {
+      await db.schedules.delete(id);
+      await enqueueMutation({
+        entity: "schedules",
+        entityId: id,
+        operation: "delete",
+        payload: { id },
+      }, db.syncOutbox);
+    });
   },
 
   async getWeekSchedule(weekOffset = 0) {

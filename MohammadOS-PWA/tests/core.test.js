@@ -15,6 +15,11 @@ import {
   SCHEDULE_MODES,
 } from "../src/utils/schedule.js";
 import { validateHabit } from "../src/domain/validation/habitValidator.js";
+import {
+  createMutation,
+  OUTBOX_OPERATIONS,
+  OUTBOX_STATUSES,
+} from "../src/sync/SyncOutboxContract.js";
 
 test("date keys are validated strictly", () => {
   assert.equal(isDateKey("2026-08-29"), true);
@@ -81,5 +86,35 @@ test("habit validation rejects empty weekly days", () => {
   assert.equal(
     validateHabit({ ...base, recurrence: { type: "weekly", days: [7] } }).valid,
     false
+  );
+});
+
+test("outbox mutations have stable delivery metadata", () => {
+  const mutation = createMutation({
+    entity: "habits",
+    entityId: "habit-1",
+    payload: { id: "habit-1", name: "مطالعه" },
+    baseVersion: 4,
+    clientId: "device-1",
+  });
+
+  assert.equal(mutation.entity, "habits");
+  assert.equal(mutation.entityId, "habit-1");
+  assert.equal(mutation.operation, OUTBOX_OPERATIONS.UPSERT);
+  assert.equal(mutation.baseVersion, 4);
+  assert.equal(mutation.clientId, "device-1");
+  assert.equal(mutation.status, OUTBOX_STATUSES.PENDING);
+  assert.equal(mutation.attemptCount, 0);
+  assert.notEqual(mutation.opId, "habit-1");
+});
+
+test("outbox rejects incomplete mutations", () => {
+  assert.throws(
+    () => createMutation({ entity: "habits" }),
+    /entityId is required/
+  );
+  assert.throws(
+    () => createMutation({ entity: "habits", entityId: "h", operation: "replace" }),
+    /operation is invalid/
   );
 });

@@ -1,6 +1,7 @@
 // src/app/lifeWheelService.js
 import { db } from "../db/database";
 import { getPersianWeekRange } from "../utils/date";
+import { enqueueMutation } from "../sync/SyncOutbox";
 
 export const LIFE_WHEEL_DIMENSIONS = [
   { id: "career", label: "مسیر شغلی" },
@@ -193,7 +194,16 @@ export async function saveLifeWheelManualScores(periodKey, manualScores = {}) {
   };
 
   try {
-    await db.lifeWheelScores.put(documentToPut);
+    await db.transaction("rw", [db.lifeWheelScores, db.syncOutbox], async () => {
+      const existing = await db.lifeWheelScores.get(periodKey);
+      await db.lifeWheelScores.put(documentToPut);
+      await enqueueMutation({
+        entity: "lifeWheelScores",
+        entityId: periodKey,
+        payload: documentToPut,
+        baseVersion: existing?.syncVersion,
+      }, db.syncOutbox);
+    });
     return normalized;
   } catch (error) {
     console.error("Error persisting life wheel scores to Dexie:", error);

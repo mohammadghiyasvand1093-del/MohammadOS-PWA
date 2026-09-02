@@ -4,7 +4,7 @@ import { db } from "../db/database";
 const BASELINE_STRENGTH = 0.5;
 
 export async function recalibrateAllHabits() {
-  return db.transaction("rw", db.habits, async () => {
+  return db.transaction("rw", [db.habits, db.syncOutbox], async () => {
     const habits = await HabitRepository.getAll();
     let count = 0;
 

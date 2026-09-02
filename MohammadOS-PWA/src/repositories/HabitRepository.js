@@ -1,6 +1,7 @@
 // src/repositories/HabitRepository.js
 
 import { db } from "../db/database";
+import { enqueueMutation } from "../sync/SyncOutbox";
 
 // ✅ Batch 48 (Reviewer 2 — P1): Domain whitelist validation
 // Matches the domains produced by mapTypeToDomain in DayLogRepository
@@ -63,7 +64,15 @@ export const HabitRepository = {
       }
     }
 
-    await db.habits.put(habit);
+    await db.transaction("rw", [db.habits, db.syncOutbox], async () => {
+      await db.habits.put(habit);
+      await enqueueMutation({
+        entity: "habits",
+        entityId: habit.id,
+        payload: habit,
+        baseVersion: habit.syncVersion,
+      }, db.syncOutbox);
+    });
     return habit;
   },
 
@@ -71,6 +80,14 @@ export const HabitRepository = {
     if (!id || typeof id !== 'string') {
       throw new Error('Invalid id: must be a non-empty string');
     }
-    await db.habits.delete(id);
+    await db.transaction("rw", [db.habits, db.syncOutbox], async () => {
+      await db.habits.delete(id);
+      await enqueueMutation({
+        entity: "habits",
+        entityId: id,
+        operation: "delete",
+        payload: { id },
+      }, db.syncOutbox);
+    });
   },
 };

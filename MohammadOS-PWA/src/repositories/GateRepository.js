@@ -1,5 +1,6 @@
 // src/repositories/GateRepository.js
 import { db } from "../db/database";
+import { enqueueMutation } from "../sync/SyncOutbox";
 
 export const GateRepository = {
   async getAll() {
@@ -28,7 +29,15 @@ export const GateRepository = {
 
   async saveGate(gate) {
     if (!gate?.id) throw new Error("Gate must have an id");
-    await db.gates.put(gate);
+    await db.transaction("rw", [db.gates, db.syncOutbox], async () => {
+      await db.gates.put(gate);
+      await enqueueMutation({
+        entity: "gates",
+        entityId: gate.id,
+        payload: gate,
+        baseVersion: gate.syncVersion,
+      }, db.syncOutbox);
+    });
     return gate;
   },
 
@@ -36,9 +45,15 @@ export const GateRepository = {
     if (!Array.isArray(gates)) throw new Error("gates must be an array");
     if (gates.length === 0) return 0;
     let saved = 0;
-    await db.transaction("rw", db.gates, async () => {
+    await db.transaction("rw", [db.gates, db.syncOutbox], async () => {
       await db.gates.bulkPut(gates);
       saved = gates.length;
+      await enqueueMutation(gates.map((gate) => ({
+        entity: "gates",
+        entityId: gate.id,
+        payload: gate,
+        baseVersion: gate.syncVersion,
+      })), db.syncOutbox);
     });
     return saved;
   },
@@ -46,11 +61,24 @@ export const GateRepository = {
   async replaceAll(newGates) {
     if (!Array.isArray(newGates)) throw new Error("newGates must be an array");
     let saved = 0;
-    await db.transaction("rw", db.gates, async () => {
+    await db.transaction("rw", [db.gates, db.syncOutbox], async () => {
+      const previous = await db.gates.toArray();
       await db.gates.clear();
+      await enqueueMutation(previous.map((gate) => ({
+        entity: "gates",
+        entityId: gate.id,
+        operation: "delete",
+        payload: { id: gate.id },
+      })), db.syncOutbox);
       if (newGates.length > 0) {
         await db.gates.bulkPut(newGates);
         saved = newGates.length;
+        await enqueueMutation(newGates.map((gate) => ({
+          entity: "gates",
+          entityId: gate.id,
+          payload: gate,
+          baseVersion: gate.syncVersion,
+        })), db.syncOutbox);
       }
     });
     return saved;
@@ -58,11 +86,28 @@ export const GateRepository = {
 
   async deleteGate(id) {
     if (!id) return;
-    await db.gates.delete(id);
+    await db.transaction("rw", [db.gates, db.syncOutbox], async () => {
+      await db.gates.delete(id);
+      await enqueueMutation({
+        entity: "gates",
+        entityId: id,
+        operation: "delete",
+        payload: { id },
+      }, db.syncOutbox);
+    });
   },
 
   async clearAll() {
-    await db.gates.clear();
+    await db.transaction("rw", [db.gates, db.syncOutbox], async () => {
+      const previous = await db.gates.toArray();
+      await db.gates.clear();
+      await enqueueMutation(previous.map((gate) => ({
+        entity: "gates",
+        entityId: gate.id,
+        operation: "delete",
+        payload: { id: gate.id },
+      })), db.syncOutbox);
+    });
   },
 
   async count() {

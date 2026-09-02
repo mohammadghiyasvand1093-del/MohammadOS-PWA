@@ -25,7 +25,9 @@ function getSyncState(status, isOnline) {
   if (!isOnline) return { label: "آفلاین", tone: "text-red-300", detail: "تغییرات محلی محفوظ هستند." };
   if (status?.hasConflict) return { label: "تعارض", tone: "text-amber-300", detail: "قبل از ادامه یکی از نسخه‌ها را انتخاب کن." };
   if (status?.retryAt) return { label: "در انتظار تلاش دوباره", tone: "text-sky-300", detail: "خطای موقت ثبت شده است." };
-  if (status?.localChanged) return { label: "در انتظار ارسال", tone: "text-amber-300", detail: "تغییرات این دستگاه هنوز در ابر ثبت نشده‌اند." };
+  if (status?.localChanged || status?.outbox?.pendingCount > 0) {
+    return { label: "در انتظار ارسال", tone: "text-amber-300", detail: "تغییرات این دستگاه هنوز در ابر ثبت نشده‌اند." };
+  }
   if (status?.cloud) return { label: "همگام", tone: "text-emerald-300", detail: "این دستگاه با آخرین نسخهٔ ابری هماهنگ است." };
   return { label: "آمادهٔ اتصال", tone: "text-os-text/70", detail: "برای شروع، ارسال یا دریافت را انتخاب کن." };
 }
@@ -121,7 +123,10 @@ export default function SyncPage() {
 
   async function retryNow() {
     await SyncService.clearFailure();
-    const action = status?.localChanged ? "push" : "pull";
+    const hasLocalChanges = Boolean(
+      status?.localChanged || status?.outbox?.pendingCount > 0
+    );
+    const action = hasLocalChanges ? "push" : "pull";
     const successText = action === "push"
       ? "تغییرات این دستگاه در فضای ابری ذخیره شد."
       : "نسخهٔ ابری روی این دستگاه دریافت شد.";
@@ -167,7 +172,7 @@ export default function SyncPage() {
         </div>
       )}
 
-      <section className="grid gap-3 sm:grid-cols-4" aria-label="خلاصه وضعیت همگام‌سازی">
+      <section className="grid gap-3 sm:grid-cols-5" aria-label="خلاصه وضعیت همگام‌سازی">
         <div className="rounded-xl border border-os-border bg-os-card p-4">
           <p className="text-[10px] text-os-text/45">وضعیت سینک</p>
           <p className={`mt-2 text-sm font-bold ${syncState.tone}`}>{syncState.label}</p>
@@ -186,6 +191,11 @@ export default function SyncPage() {
         <div className="rounded-xl border border-os-border bg-os-card p-4">
           <p className="text-[10px] text-os-text/45">رکوردهای این دستگاه</p>
           <p className="mt-2 text-sm font-bold text-os-text">{loading ? "..." : totalLocalRecords}</p>
+        </div>
+        <div className="rounded-xl border border-os-border bg-os-card p-4">
+          <p className="text-[10px] text-os-text/45">تغییرات در صف</p>
+          <p className="mt-2 text-sm font-bold text-os-accent">{loading ? "..." : status?.outbox?.pendingCount || 0}</p>
+          <p className="mt-1 text-[10px] leading-5 text-os-text/45">قبل از ارسال ابری، محلی ثبت می‌شوند.</p>
         </div>
       </section>
 

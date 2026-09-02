@@ -2,6 +2,7 @@
 
 import { db } from "../db/database";
 import { getLocalDateKey } from "../utils/date";
+import { enqueueMutation, enqueueMutations } from "../sync/SyncOutbox";
 
 function toSafeNumber(value, fallback = 0) {
   const numberValue = Number(value);
@@ -184,28 +185,36 @@ export const CourseRepository = {
       updatedAt: nowIso,
     };
 
-    await db.transaction("rw", [db.courses, db.courseSessions], async () => {
+    await db.transaction("rw", [db.courses, db.courseSessions, db.syncOutbox], async () => {
       await db.courses.put(course);
 
       if (startEpisode > 0) {
-        const sessionPromises = [];
+        const sessions = [];
 
         for (let i = 1; i <= startEpisode; i++) {
-          sessionPromises.push(
-            db.courseSessions.put({
-              id: crypto.randomUUID(),
-              courseId: id,
-              episodeNumber: i,
-              status: "completed",
-              note: "ثبت شده در زمان ایجاد دوره",
-              date: dateStr,
-              createdAt: nowIso,
-            })
-          );
+          sessions.push({
+            id: crypto.randomUUID(),
+            courseId: id,
+            episodeNumber: i,
+            status: "completed",
+            note: "ثبت شده در زمان ایجاد دوره",
+            date: dateStr,
+            createdAt: nowIso,
+          });
         }
 
-        await Promise.all(sessionPromises);
+        await db.courseSessions.bulkPut(sessions);
+        await enqueueMutations(sessions.map((session) => ({
+          entity: "courseSessions",
+          entityId: session.id,
+          payload: session,
+        })), db.syncOutbox);
       }
+      await enqueueMutation({
+        entity: "courses",
+        entityId: course.id,
+        payload: course,
+      }, db.syncOutbox);
     });
 
     return id;
@@ -247,7 +256,16 @@ export const CourseRepository = {
       );
     }
 
-    await db.courses.update(id, updateFields);
+    const updatedCourse = { ...currentData, ...updateFields };
+    await db.transaction("rw", [db.courses, db.syncOutbox], async () => {
+      await db.courses.update(id, updateFields);
+      await enqueueMutation({
+        entity: "courses",
+        entityId: id,
+        payload: updatedCourse,
+        baseVersion: currentData.syncVersion,
+      }, db.syncOutbox);
+    });
     return true;
   },
 
@@ -273,7 +291,7 @@ export const CourseRepository = {
     const nowIso = now.toISOString();
     const dateStr = getLocalDateKey(now);
 
-    await db.transaction("rw", [db.courses, db.courseSessions], async () => {
+    await db.transaction("rw", [db.courses, db.courseSessions, db.syncOutbox], async () => {
       const existingCompletedSession = await db.courseSessions
         .where("courseId")
         .equals(courseId)
@@ -285,7 +303,7 @@ export const CourseRepository = {
         .first();
 
       if (!existingCompletedSession) {
-        await db.courseSessions.put({
+        const session = {
           id: crypto.randomUUID(),
           courseId,
           episodeNumber: safeEpisodeNumber,
@@ -293,7 +311,13 @@ export const CourseRepository = {
           note: note.trim(),
           date: dateStr,
           createdAt: nowIso,
-        });
+        };
+        await db.courseSessions.put(session);
+        await enqueueMutation({
+          entity: "courseSessions",
+          entityId: session.id,
+          payload: session,
+        }, db.syncOutbox);
       }
 
       const currentEpisode = toSafeNumber(course.currentEpisode);
@@ -307,6 +331,12 @@ export const CourseRepository = {
         currentEpisode: nextEpisode,
         updatedAt: nowIso,
       });
+      await enqueueMutation({
+        entity: "courses",
+        entityId: courseId,
+        payload: { ...course, currentEpisode: nextEpisode, updatedAt: nowIso },
+        baseVersion: course.syncVersion,
+      }, db.syncOutbox);
     });
 
     return true;
@@ -316,9 +346,22 @@ export const CourseRepository = {
    * حذف دوره و جلسات وابسته
    */
   async delete(id) {
-    await db.transaction("rw", [db.courses, db.courseSessions], async () => {
+    await db.transaction("rw", [db.courses, db.courseSessions, db.syncOutbox], async () => {
+      const sessions = await db.courseSessions.where("courseId").equals(id).toArray();
       await db.courses.delete(id);
       await db.courseSessions.where("courseId").equals(id).delete();
+      await enqueueMutation({
+        entity: "courses",
+        entityId: id,
+        operation: "delete",
+        payload: { id },
+      }, db.syncOutbox);
+      await enqueueMutations(sessions.map((session) => ({
+        entity: "courseSessions",
+        entityId: session.id,
+        operation: "delete",
+        payload: { id: session.id, courseId: id },
+      })), db.syncOutbox);
     });
 
     return true;
