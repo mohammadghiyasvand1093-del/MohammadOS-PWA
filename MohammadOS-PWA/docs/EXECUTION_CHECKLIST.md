@@ -8,6 +8,8 @@
 - [x] Add automated tests for date, Persian week, schedule signatures, and habit
   recurrence validation.
 - [x] Add a repeatable `npm run test` command.
+- [x] Add a disabled record-level sync foundation with a one-time baseline
+  seed and a visible preparation status.
 
 ## Phase 1 — stability and mobile
 
@@ -46,6 +48,8 @@
 - [x] Add the local outbox table and atomic helper contract as a transition bridge.
 - [x] Record habit, schedule, gate, course, day-log, and life-wheel mutations in the local outbox.
 - [x] Show the local outbox count on the Sync page.
+- [ ] Run `supabase/record_sync_schema.sql` in the production Supabase project
+  and verify the baseline status for owner and guest independently.
 - [ ] Add record-level retry queue with backoff and offline mutation delivery.
 - [ ] Add tombstones for deletions.
 - [ ] Add record-level conflict resolution and tombstone acknowledgement.

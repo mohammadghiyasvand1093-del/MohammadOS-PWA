@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { SyncService } from "../sync/SyncService";
+import { RecordSyncService } from "../sync/RecordSyncService";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 
 function formatDate(value) {
@@ -12,6 +13,13 @@ function formatDate(value) {
 }
 
 function getErrorMessage(error) {
+  if (
+    error?.message?.includes("sync_records")
+    || error?.message?.includes("get_sync_record_status")
+    || error?.message?.includes("seed_sync_records")
+  ) {
+    return "زیرساخت همگام‌سازی رکوردی در Supabase نصب نشده است؛ فایل supabase/record_sync_schema.sql را اجرا کنید.";
+  }
   if (error?.code === "PGRST202") {
     return "بخش ابری هنوز در Supabase نصب نشده است؛ فایل supabase/sync_schema.sql را اجرا کنید.";
   }
@@ -39,6 +47,8 @@ export default function SyncPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState(null);
+  const [recordStatus, setRecordStatus] = useState(null);
+  const [recordBusy, setRecordBusy] = useState("");
   const userId = user?.id;
 
   const refresh = useCallback(async () => {
@@ -133,6 +143,68 @@ export default function SyncPage() {
     await runAction(action, successText);
   }
 
+  async function refreshRecordStatus() {
+    if (!isOnline || recordBusy || !userId) return;
+    setRecordBusy("status");
+    setMessage(null);
+    try {
+      const nextStatus = await RecordSyncService.getRemoteStatus(userId);
+      setRecordStatus(nextStatus);
+      if (nextStatus.status === "unavailable") {
+        setMessage({ type: "error", text: getErrorMessage(nextStatus.error) });
+      } else {
+        setMessage({
+          type: "info",
+          text: nextStatus.seeded
+            ? `نسخهٔ پایهٔ این حساب آماده است؛ ${nextStatus.recordCount || 0} رکورد در ابر ثبت شده.`
+            : "نسخهٔ پایهٔ این حساب هنوز ساخته نشده است.",
+        });
+      }
+    } catch (error) {
+      setMessage({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setRecordBusy("");
+    }
+  }
+
+  async function seedRecordBaseline() {
+    if (!isOnline || recordBusy || !userId) return;
+    if (!window.confirm(
+      "از داده‌های فعلی این حساب یک نسخهٔ پایهٔ رکوردی در Supabase ساخته شود؟ این کار فقط یک‌بار انجام می‌شود و همگام‌سازی خودکار را فعال نمی‌کند."
+    )) return;
+
+    setRecordBusy("seed");
+    setMessage(null);
+    try {
+      const result = await RecordSyncService.seedLocalBaseline(userId);
+      if (result.status === "seeded") {
+        setRecordStatus(result);
+        setMessage({
+          type: "success",
+          text: `نسخهٔ پایه ساخته شد و ${result.recordCount || 0} رکورد برای حساب فعلی آمادهٔ همگام‌سازی شد.`,
+        });
+      } else if (result.status === "already_seeded") {
+        const nextStatus = result.remoteStatus || result;
+        setRecordStatus(nextStatus);
+        setMessage({ type: "info", text: "نسخهٔ پایهٔ این حساب قبلاً ساخته شده و دوباره روی آن نوشته نشد." });
+      } else if (result.status === "unavailable") {
+        setMessage({ type: "error", text: getErrorMessage(result.error) });
+      } else if (result.status === "offline") {
+        setMessage({ type: "error", text: "اینترنت قطع است؛ ساخت نسخهٔ پایه فعلاً انجام نمی‌شود." });
+      } else if (result.status === "unauthenticated") {
+        setMessage({ type: "error", text: "حساب واردشده شناسایی نشد؛ دوباره وارد حساب شو." });
+      } else if (result.status === "too_large") {
+        setMessage({ type: "error", text: "حجم نسخهٔ پایه زیاد است؛ ابتدا داده‌های غیرضروری را پاک یا جداگانه بکاپ بگیر." });
+      } else {
+        setMessage({ type: "error", text: "ساخت نسخهٔ پایه با وضعیت نامشخص متوقف شد؛ دوباره بررسی کن." });
+      }
+    } catch (error) {
+      setMessage({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setRecordBusy("");
+    }
+  }
+
   const totalLocalRecords = status
     ? Object.values(status.localCounts).reduce((sum, count) => sum + count, 0)
     : 0;
@@ -194,8 +266,10 @@ export default function SyncPage() {
         </div>
         <div className="rounded-xl border border-os-border bg-os-card p-4">
           <p className="text-[10px] text-os-text/45">تغییرات در صف</p>
-          <p className="mt-2 text-sm font-bold text-os-accent">{loading ? "..." : status?.outbox?.pendingCount || 0}</p>
-          <p className="mt-1 text-[10px] leading-5 text-os-text/45">قبل از ارسال ابری، محلی ثبت می‌شوند.</p>
+          <p className="mt-2 text-sm font-bold text-os-accent">
+            {loading ? "..." : status?.outbox?.pendingCount || 0}
+          </p>
+          <p className="mt-1 text-[10px] leading-5 text-os-text/45">قبل از ارسال Snapshot، محلی ثبت می‌شوند.</p>
         </div>
       </section>
 
@@ -243,6 +317,58 @@ export default function SyncPage() {
         )}
       </section>
 
+      <section className="rounded-xl border border-sky-500/30 bg-os-card p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-mono tracking-widest text-sky-300">RECORD SYNC PREPARATION</p>
+            <h2 className="mt-2 font-bold">نسخهٔ پایهٔ رکوردی</h2>
+            <p className="mt-2 max-w-2xl text-[11px] leading-6 text-os-text/55">
+              داده‌های فعلی همین حساب را با شناسهٔ هر رکورد در ابر ثبت می‌کند تا مرحلهٔ بعد بتواند تغییرات گوشی و لپ‌تاپ را دقیق‌تر ترکیب کند.
+              این عملیات دستی، یک‌بارمصرف و غیرمخرب است؛ ارسال و دریافت خودکار هنوز فعال نمی‌شود.
+            </p>
+          </div>
+          <span className={`rounded-full border px-3 py-1 text-[10px] ${
+            recordStatus?.seeded
+              ? "border-emerald-500/40 text-emerald-300"
+              : recordStatus?.state === "not_seeded"
+                ? "border-amber-500/40 text-amber-300"
+                : "border-os-border text-os-text/50"
+          }`}>
+            {recordStatus?.seeded
+              ? "آماده"
+              : recordStatus?.state === "not_seeded"
+                ? "ساخته نشده"
+                : "بررسی نشده"}
+          </span>
+        </div>
+
+        {recordStatus?.seeded && (
+          <p className="mt-4 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-[11px] leading-6 text-emerald-200/80">
+            {recordStatus.recordCount || 0} رکورد برای حساب فعلی آماده شده است.
+            {recordStatus.baselineAt ? ` زمان: ${formatDate(recordStatus.baselineAt)}` : ""}
+          </p>
+        )}
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => void refreshRecordStatus()}
+            disabled={!isOnline || Boolean(recordBusy)}
+            className="rounded-lg border border-sky-500/50 px-3 py-2 text-[11px] text-sky-300 hover:bg-sky-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {recordBusy === "status" ? "در حال بررسی..." : "بررسی نسخهٔ پایه"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void seedRecordBaseline()}
+            disabled={!isOnline || Boolean(recordBusy) || recordStatus?.seeded}
+            className="rounded-lg bg-sky-500/90 px-3 py-2 text-[11px] font-bold text-os-bg hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {recordBusy === "seed" ? "در حال ساخت..." : "ساخت نسخهٔ پایه"}
+          </button>
+        </div>
+      </section>
+
       <section className="rounded-xl border border-os-border bg-os-card p-4">
         <h2 className="font-bold">آخرین وضعیت</h2>
         <div className="mt-3 space-y-2 text-[11px] text-os-text/55">
@@ -269,7 +395,8 @@ export default function SyncPage() {
           </button>
         )}
         <p className="mt-4 rounded-lg border border-os-border/60 bg-os-bg/50 p-3 text-[11px] leading-6 text-os-text/50">
-          نکته: این مرحله پشتیبان و تعارض‌سنج امن است؛ تایمر فعال، پیش‌نویس‌ها، تاریخچهٔ Import و داده‌های موقت دستگاه عمداً همگام نمی‌شوند.
+          نکته: Snapshot فعلی همچنان روش فعال همگام‌سازی است. زیرساخت رکوردی
+          تا تکمیل seed، دریافت کامل و رابط حل تعارض عمداً غیرفعال مانده است.
         </p>
       </section>
     </div>

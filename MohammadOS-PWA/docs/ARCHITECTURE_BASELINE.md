@@ -69,11 +69,12 @@ next_retry_at, status
 ```
 
 The current transition bridge records selected repository mutations in a local
-Dexie outbox while snapshot sync remains the active cloud transport. It does
-not record snapshot application or import operations, and a successful
-snapshot push or pull clears the bridge queue. Record-level delivery,
-server-side tombstones, and conflict resolution remain disabled until they are
-implemented and tested as one protocol.
+Dexie outbox while snapshot sync remains the active cloud transport. A
+record-level delivery client and server migration are present as a disabled
+foundation only; they are not part of the active transport. Snapshot push and
+pull clear the transition queue. Record-level delivery must not be enabled
+until baseline seeding, record-level pull, tombstone application, and conflict
+resolution UI are implemented and tested as one protocol.
 
 Conflict policy is domain-aware:
 

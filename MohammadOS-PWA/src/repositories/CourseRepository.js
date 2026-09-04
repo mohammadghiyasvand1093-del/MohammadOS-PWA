@@ -347,6 +347,7 @@ export const CourseRepository = {
    */
   async delete(id) {
     await db.transaction("rw", [db.courses, db.courseSessions, db.syncOutbox], async () => {
+      const course = await db.courses.get(id);
       const sessions = await db.courseSessions.where("courseId").equals(id).toArray();
       await db.courses.delete(id);
       await db.courseSessions.where("courseId").equals(id).delete();
@@ -355,6 +356,7 @@ export const CourseRepository = {
         entityId: id,
         operation: "delete",
         payload: { id },
+        baseVersion: course?.syncVersion,
       }, db.syncOutbox);
       await enqueueMutations(sessions.map((session) => ({
         entity: "courseSessions",

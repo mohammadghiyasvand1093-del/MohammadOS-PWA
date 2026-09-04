@@ -27,17 +27,92 @@ export function getClientId() {
 
 export async function enqueueMutation(mutation, table = db.syncOutbox) {
   const record = createMutation({ ...mutation, clientId: mutation.clientId || getClientId() });
+  const existing = await table
+    .where("[entity+entityId]")
+    .equals([record.entity, record.entityId])
+    .filter((item) => (
+      item.status === OUTBOX_STATUSES.PENDING
+      || item.status === OUTBOX_STATUSES.FAILED
+    ))
+    .first();
+
+  if (existing) {
+    const merged = {
+      ...record,
+      opId: existing.opId,
+      createdAt: existing.createdAt,
+      baseVersion: existing.baseVersion ?? record.baseVersion,
+      attemptCount: 0,
+      nextRetryAt: null,
+      lastError: null,
+    };
+    await table.put(merged);
+    return merged;
+  }
+
   await table.add(record);
   return record;
 }
 
 export async function enqueueMutations(mutations, table = db.syncOutbox) {
-  const records = mutations.map((mutation) => createMutation({
-    ...mutation,
-    clientId: mutation.clientId || getClientId(),
-  }));
-  if (records.length > 0) await table.bulkAdd(records);
+  const records = [];
+  for (const mutation of mutations) {
+    records.push(await enqueueMutation(mutation, table));
+  }
   return records;
+}
+
+export async function getPendingMutations(limit = 50, table = db.syncOutbox) {
+  const now = Date.now();
+  const records = await table
+    .where("status")
+    .anyOf([OUTBOX_STATUSES.PENDING, OUTBOX_STATUSES.FAILED])
+    .toArray();
+
+  return records
+    .filter((record) => {
+      if (!record.nextRetryAt) return true;
+      const retryAt = new Date(record.nextRetryAt).getTime();
+      return !Number.isFinite(retryAt) || retryAt <= now;
+    })
+    .sort((left, right) => String(left.createdAt).localeCompare(String(right.createdAt)))
+    .slice(0, Math.max(1, Number(limit) || 50));
+}
+
+export async function completeMutations(opIds, table = db.syncOutbox) {
+  const ids = [...new Set((opIds || []).filter(Boolean))];
+  if (ids.length > 0) await table.bulkDelete(ids);
+}
+
+export async function markMutationsFailed(opIds, error, nextRetryAt, table = db.syncOutbox) {
+  const ids = new Set((opIds || []).filter(Boolean));
+  if (ids.size === 0) return;
+  const records = await table.toArray();
+  const message = String(error?.message || error || "خطای همگام‌سازی").slice(0, 240);
+  await table.bulkPut(records
+    .filter((record) => ids.has(record.opId))
+    .map((record) => ({
+      ...record,
+      status: OUTBOX_STATUSES.FAILED,
+      attemptCount: Number(record.attemptCount || 0) + 1,
+      nextRetryAt: nextRetryAt || null,
+      lastError: message,
+    })));
+}
+
+export async function markMutationsConflict(conflicts, table = db.syncOutbox) {
+  const byId = new Map((conflicts || []).filter((item) => item?.opId).map((item) => [item.opId, item]));
+  if (byId.size === 0) return;
+  const records = await table.toArray();
+  await table.bulkPut(records
+    .filter((record) => byId.has(record.opId))
+    .map((record) => ({
+      ...record,
+      status: OUTBOX_STATUSES.CONFLICT,
+      nextRetryAt: null,
+      lastError: byId.get(record.opId)?.reason || "تعارض نسخهٔ ابری",
+      conflictVersion: byId.get(record.opId)?.version ?? null,
+    })));
 }
 
 export async function getOutboxSummary(table = db.syncOutbox) {
@@ -52,6 +127,7 @@ export async function getOutboxSummary(table = db.syncOutbox) {
     count: records.length,
     pendingCount: byStatus[OUTBOX_STATUSES.PENDING] || 0,
     failedCount: byStatus[OUTBOX_STATUSES.FAILED] || 0,
+    conflictCount: byStatus[OUTBOX_STATUSES.CONFLICT] || 0,
     byStatus,
   };
 }
@@ -65,6 +141,10 @@ export const SyncOutbox = {
   createMutation,
   enqueueMutation,
   enqueueMutations,
+  getPendingMutations,
+  completeMutations,
+  markMutationsFailed,
+  markMutationsConflict,
   getSummary: getOutboxSummary,
   clear: clearOutbox,
 };

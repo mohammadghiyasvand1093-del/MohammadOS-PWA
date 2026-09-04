@@ -6,6 +6,7 @@ export const OUTBOX_OPERATIONS = {
 export const OUTBOX_STATUSES = {
   PENDING: "pending",
   FAILED: "failed",
+  CONFLICT: "conflict",
 };
 
 function createId(prefix) {

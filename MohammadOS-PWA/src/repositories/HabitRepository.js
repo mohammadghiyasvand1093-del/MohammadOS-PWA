@@ -81,12 +81,14 @@ export const HabitRepository = {
       throw new Error('Invalid id: must be a non-empty string');
     }
     await db.transaction("rw", [db.habits, db.syncOutbox], async () => {
+      const existing = await db.habits.get(id);
       await db.habits.delete(id);
       await enqueueMutation({
         entity: "habits",
         entityId: id,
         operation: "delete",
         payload: { id },
+        baseVersion: existing?.syncVersion,
       }, db.syncOutbox);
     });
   },

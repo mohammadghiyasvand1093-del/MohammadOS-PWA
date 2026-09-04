@@ -120,6 +120,7 @@ export const ScheduleRepository = {
           entityId: previous.id,
           operation: "delete",
           payload: { id: previous.id, planId },
+          baseVersion: previous.syncVersion,
         }, db.syncOutbox);
       }
       await db.schedules.bulkPut(records);
@@ -154,6 +155,7 @@ export const ScheduleRepository = {
           entityId: record.id,
           operation: "delete",
           payload: { id: record.id, planId },
+          baseVersion: record.syncVersion,
         }, db.syncOutbox);
       }
     });
@@ -220,12 +222,14 @@ export const ScheduleRepository = {
       throw new Error('Invalid id: must be a non-empty string');
     }
     await db.transaction("rw", [db.schedules, db.syncOutbox], async () => {
+      const existing = await db.schedules.get(id);
       await db.schedules.delete(id);
       await enqueueMutation({
         entity: "schedules",
         entityId: id,
         operation: "delete",
         payload: { id },
+        baseVersion: existing?.syncVersion,
       }, db.syncOutbox);
     });
   },
