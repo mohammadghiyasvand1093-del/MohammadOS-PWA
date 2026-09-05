@@ -164,6 +164,17 @@ async function getCloudSnapshot(userId) {
   return data || null;
 }
 
+async function getRecordSyncStatus() {
+  try {
+    const { data, error } = await supabase.rpc("get_sync_record_status");
+    if (error) return null;
+    const status = normalizeRpcRow(data);
+    return status?.seeded ? status : null;
+  } catch {
+    return null;
+  }
+}
+
 async function getLocalSummary() {
   const counts = {};
   for (const tableName of SYNCABLE_TABLES) {
@@ -283,6 +294,11 @@ export const SyncService = {
     assertConfigured(userId);
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       return { status: "offline" };
+    }
+
+    const recordStatus = await getRecordSyncStatus();
+    if (recordStatus) {
+      return { status: "record_mode", recordStatus };
     }
 
     const localMeta = await getLocalMeta();

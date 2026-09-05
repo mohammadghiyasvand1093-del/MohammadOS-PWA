@@ -21,6 +21,7 @@ import { DEFAULT_HELP_CONTENT, HELP_CONTENT } from "./content/helpContent";
 import { useAccessRequestMonitor } from "./auth/useAccessRequestMonitor";
 import { showAppNotification } from "./utils/notifications";
 import { SyncService } from "./sync/SyncService";
+import { useRecordAutoSync } from "./sync/useRecordAutoSync";
 
 const TodayPage = lazy(() => import("./pages/TodayPage"));
 const SchedulePage = lazy(() => import("./pages/SchedulePage"));
@@ -161,6 +162,8 @@ function AuthenticatedAppLayout() {
   const [syncNotice, setSyncNotice] = useState(readSyncNotice);
   const [accessRequestNotification, setAccessRequestNotification] = useState(null);
   const [autoSyncState, setAutoSyncState] = useState("idle");
+  const [recordAutoSyncState, setRecordAutoSyncState] = useState("idle");
+  const [recordAutoSyncCount, setRecordAutoSyncCount] = useState(0);
   const syncInFlightRef = useRef(false);
   const syncRetryTimeoutRef = useRef(null);
   
@@ -184,6 +187,33 @@ function AuthenticatedAppLayout() {
   const { showOnboarding, onboardingStep, setOnboardingStep, handleFinishOnboarding } = useOnboarding(user?.id);
   const isOnline = useOnlineStatus();
   const helpContent = HELP_CONTENT[location.pathname] || DEFAULT_HELP_CONTENT;
+
+  const handleRecordAutoSync = useCallback((result) => {
+    setRecordAutoSyncState(result.status);
+    if (result.status === "synced") {
+      setRecordAutoSyncCount(result.accepted || 0);
+      void showAppNotification("تغییرات رکوردی ذخیره شد", {
+        body: String(result.accepted || 0) + " تغییر محلی به‌صورت خودکار در ابر ثبت شد.",
+        tag: "mohammados-record-auto-sync",
+      });
+    } else if (result.status === "conflict") {
+      void showAppNotification("تعارض رکوردی", {
+        body: "یک تغییر رکوردی نیازمند تصمیم شماست؛ بخش همگام‌سازی را بررسی کنید.",
+        tag: "mohammados-record-sync-conflict",
+      });
+    } else if (result.status === "failed") {
+      void showAppNotification("ارسال رکوردی ناموفق بود", {
+        body: "تغییرات محلی محفوظ‌اند و برنامه بعداً دوباره تلاش می‌کند.",
+        tag: "mohammados-record-sync-failed",
+      });
+    }
+  }, []);
+
+  useRecordAutoSync({
+    userId: user?.id,
+    isOnline,
+    onResult: handleRecordAutoSync,
+  });
 
   useEffect(() => {
     if (!user?.id) return undefined;
@@ -505,8 +535,41 @@ function AuthenticatedAppLayout() {
         actionLabel: "مشاهده وضعیت",
       });
     }
+    if (recordAutoSyncState === "conflict") {
+      notifs.push({
+        id: "record-sync-conflict",
+        icon: "⚠️",
+        title: "تعارض رکوردی نیازمند تصمیم است",
+        desc: "نسخهٔ ابری و محلی بدون حذف خودکار نگه داشته شده‌اند.",
+        type: "warning",
+        action: () => navigate("/sync"),
+        actionLabel: "بررسی تعارض",
+      });
+    }
+    if (recordAutoSyncState === "synced") {
+      notifs.push({
+        id: "record-sync-pushed",
+        icon: "☁️",
+        title: "تغییرات رکوردی خودکار ذخیره شد",
+        desc: String(recordAutoSyncCount) + " تغییر محلی در ابر ثبت شد.",
+        type: "success",
+        action: () => navigate("/sync"),
+        actionLabel: "مشاهده وضعیت",
+      });
+    }
+    if (recordAutoSyncState === "failed") {
+      notifs.push({
+        id: "record-sync-failed",
+        icon: "↻",
+        title: "ارسال رکوردی دوباره انجام می‌شود",
+        desc: "تغییرات محلی محفوظ‌اند و retry با فاصلهٔ امن ادامه دارد.",
+        type: "warning",
+        action: () => navigate("/sync"),
+        actionLabel: "مشاهده صف",
+      });
+    }
     return notifs;
-  }, [notifData, handleQuickBackup, releaseNotification, syncNotice, accessRequestNotification, pendingAccessRequests.length, role, navigate, autoSyncState]);
+  }, [notifData, handleQuickBackup, releaseNotification, syncNotice, accessRequestNotification, pendingAccessRequests.length, role, navigate, autoSyncState, recordAutoSyncState, recordAutoSyncCount]);
 
   const hasUnread = notifications.some(n => n.type === "critical" || n.type === "warning" || n.type === "success");
 

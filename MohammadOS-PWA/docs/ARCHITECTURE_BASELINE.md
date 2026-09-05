@@ -68,13 +68,12 @@ base_version, client_id, created_at, attempt_count,
 next_retry_at, status
 ```
 
-The current transition bridge records selected repository mutations in a local
-Dexie outbox while snapshot sync remains the active cloud transport. A
-record-level delivery client and server migration are present as a disabled
-foundation only; they are not part of the active transport. Snapshot push and
-pull clear the transition queue. Record-level delivery must not be enabled
-until baseline seeding, record-level pull, tombstone application, and conflict
-resolution UI are implemented and tested as one protocol.
+The transition bridge records selected repository mutations in a local Dexie
+outbox. After a per-account record baseline is seeded, record-level outbox
+delivery is active for pushes with retry, online recovery, and conflict review.
+Record-level pull and conflict decisions remain explicit user actions. Snapshot
+push and pull are disabled for that account while record mode is active, so the
+two transports cannot clear each other's queue.
 
 Conflict policy is domain-aware:
 

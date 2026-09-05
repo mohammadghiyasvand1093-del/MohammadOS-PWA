@@ -51,7 +51,8 @@
 - [x] Add paginated manual record pull and manual outbox push after baseline setup.
 - [ ] Run `supabase/record_sync_schema.sql` in the production Supabase project
   and verify the baseline status for owner and guest independently.
-- [ ] Add record-level retry queue with backoff and offline mutation delivery.
+- [x] Add record-level retry queue with backoff, online recovery, visibility recovery,
+  and in-app notification delivery.
 - [x] Add server tombstones and safe manual application of remote deletions.
 - [x] Add record-level conflict choices and local tombstone acknowledgement.
 - [ ] Migrate existing Dexie data only after a local backup is verified.

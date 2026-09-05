@@ -105,7 +105,7 @@ export default function SyncPage() {
   }, [isOnline, userId]);
 
   async function runAction(action, successText) {
-    if (!isOnline || busy) return;
+    if (!isOnline || busy || recordStatus?.seeded) return;
     setBusy(action);
     setMessage(null);
     try {
@@ -134,6 +134,7 @@ export default function SyncPage() {
   }
 
   async function replaceCloudWithLocal() {
+    if (recordStatus?.seeded) return;
     if (!window.confirm("نسخهٔ ابری با داده‌های این دستگاه جایگزین شود؟ دادهٔ ابری قبلی دیگر نسخهٔ اصلی نخواهد بود.")) return;
     setBusy("force-push");
     setMessage(null);
@@ -152,6 +153,7 @@ export default function SyncPage() {
   }
 
   async function replaceLocalWithCloud() {
+    if (recordStatus?.seeded) return;
     if (!window.confirm("داده‌های محلی این دستگاه با نسخهٔ ابری جایگزین شود؟ قبل از ادامه از دادهٔ فعلی بکاپ بگیر.")) return;
     await runAction("pull", "نسخهٔ ابری روی این دستگاه دریافت شد.");
   }
@@ -419,7 +421,7 @@ export default function SyncPage() {
           <div>
             <h2 className="font-bold">عملیات امن</h2>
             <p className="mt-1 text-[11px] leading-6 text-os-text/50">
-              ارسال و دریافت دستی است تا هیچ دستگاهی بی‌خبر دادهٔ دستگاه دیگر را پاک نکند.
+              قبل از فعال‌شدن نسخهٔ پایهٔ رکوردی، Snapshot دستی بود تا هیچ دستگاهی بی‌خبر دادهٔ دستگاه دیگر را پاک نکند.
             </p>
           </div>
           <button type="button" onClick={() => void refresh()} disabled={loading} className="rounded-lg border border-os-border px-3 py-2 text-xs text-os-text/70 hover:border-os-accent hover:text-os-accent disabled:opacity-50">
@@ -428,15 +430,15 @@ export default function SyncPage() {
         </div>
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          <button type="button" onClick={() => void runAction("push", "داده‌های این دستگاه در فضای ابری ذخیره شد.")} disabled={!isOnline || Boolean(busy)} className="rounded-lg bg-os-accent px-4 py-3 text-sm font-black text-os-bg disabled:cursor-not-allowed disabled:opacity-40">
+          <button type="button" onClick={() => void runAction("push", "داده‌های این دستگاه در فضای ابری ذخیره شد.")} disabled={!isOnline || Boolean(busy) || recordStatus?.seeded} className="rounded-lg bg-os-accent px-4 py-3 text-sm font-black text-os-bg disabled:cursor-not-allowed disabled:opacity-40">
             {busy === "push" ? "در حال ارسال..." : "ارسال این دستگاه به ابر"}
           </button>
-          <button type="button" onClick={() => void runAction("pull", "نسخهٔ ابری روی این دستگاه دریافت شد.")} disabled={!isOnline || Boolean(busy)} className="rounded-lg border border-os-accent/60 px-4 py-3 text-sm font-bold text-os-accent hover:bg-os-accent/10 disabled:cursor-not-allowed disabled:opacity-40">
+          <button type="button" onClick={() => void runAction("pull", "نسخهٔ ابری روی این دستگاه دریافت شد.")} disabled={!isOnline || Boolean(busy) || recordStatus?.seeded} className="rounded-lg border border-os-accent/60 px-4 py-3 text-sm font-bold text-os-accent hover:bg-os-accent/10 disabled:cursor-not-allowed disabled:opacity-40">
             {busy === "pull" ? "در حال دریافت..." : "دریافت نسخهٔ ابری"}
           </button>
         </div>
 
-        {status?.hasConflict && (
+        {status?.hasConflict && !recordStatus?.seeded && (
           <div className="mt-5 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
             <p className="text-sm font-bold text-amber-300">
               {status.localMeta ? "تعارض بین این دستگاه و فضای ابری" : "اولین اتصال این دستگاه"}

@@ -26,6 +26,14 @@ export function getClientId() {
 }
 
 export async function enqueueMutation(mutation, table = db.syncOutbox) {
+  const notify = (record) => {
+    if (table !== db.syncOutbox || typeof window === "undefined") return;
+    window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent("mohammados:record-mutation-enqueued", {
+        detail: { entity: record.entity, entityId: record.entityId },
+      }));
+    }, 0);
+  };
   const record = createMutation({ ...mutation, clientId: mutation.clientId || getClientId() });
   const existing = await table
     .where("[entity+entityId]")
@@ -47,10 +55,12 @@ export async function enqueueMutation(mutation, table = db.syncOutbox) {
       lastError: null,
     };
     await table.put(merged);
+    notify(merged);
     return merged;
   }
 
   await table.add(record);
+  notify(record);
   return record;
 }
 
