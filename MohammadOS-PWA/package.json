@@ -1,7 +1,7 @@
 {
   "name": "mohammados-pwa",
   "private": true,
-  "version": "2.1.9",
+  "version": "2.1.10",
   "description": "Personal Operating System — A privacy-first, offline-capable PWA for habit tracking and life management.",
   "type": "module",
   "author": "Mohammad Ghiyasvand",
@@ -21,6 +21,9 @@
     "test": "node --test tests",
     "preview": "vite preview",
     "format": "prettier --write \"src/**/*.{js,jsx,css}\""
+  },
+  "overrides": {
+    "fast-uri": "3.1.7"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.109.0",

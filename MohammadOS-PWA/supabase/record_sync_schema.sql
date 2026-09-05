@@ -111,6 +111,100 @@ revoke all on function public.get_sync_record_status() from public;
 revoke all on function public.get_sync_record_status() from anon;
 grant execute on function public.get_sync_record_status() to authenticated;
 
+create or replace function public.pull_sync_records(
+  after_updated_at timestamptz,
+  after_entity text,
+  after_entity_id text,
+  page_size integer
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+stable
+as $$
+declare
+  current_user_id uuid := (select auth.uid());
+  page_size_value integer;
+  page_records jsonb;
+  returned_count integer;
+  last_updated_at timestamptz;
+  last_entity text;
+  last_entity_id text;
+begin
+  if current_user_id is null then
+    raise exception 'not_authenticated';
+  end if;
+
+  page_size_value := least(greatest(coalesce(page_size, 100), 1), 100);
+
+  with page as (
+    select entity, entity_id, payload, version, deleted_at,
+           updated_at, updated_by_device
+      from public.sync_records
+     where user_id = current_user_id
+       and (
+         after_updated_at is null
+         or updated_at > after_updated_at
+         or (
+           updated_at = after_updated_at
+           and entity > coalesce(after_entity, '')
+         )
+         or (
+           updated_at = after_updated_at
+           and entity = coalesce(after_entity, '')
+           and entity_id > coalesce(after_entity_id, '')
+         )
+       )
+     order by updated_at, entity, entity_id
+     limit page_size_value
+  )
+  select coalesce(
+    jsonb_agg(
+      to_jsonb(page)
+      order by page.updated_at, page.entity, page.entity_id
+    ),
+    '[]'::jsonb
+  )
+    into page_records
+    from page;
+
+  returned_count := jsonb_array_length(page_records);
+
+  if returned_count = page_size_value then
+    select
+      (item->>'updated_at')::timestamptz,
+      item->>'entity',
+      item->>'entity_id'
+      into last_updated_at, last_entity, last_entity_id
+    from jsonb_array_elements(page_records) as elements(item)
+    order by
+      (item->>'updated_at')::timestamptz desc,
+      item->>'entity' desc,
+      item->>'entity_id' desc
+    limit 1;
+  end if;
+
+  return jsonb_build_object(
+    'status', 'ok',
+    'records', page_records,
+    'hasMore', returned_count = page_size_value,
+    'nextCursor', case
+      when returned_count = page_size_value then jsonb_build_object(
+        'updatedAt', last_updated_at,
+        'entity', last_entity,
+        'entityId', last_entity_id
+      )
+      else null
+    end
+  );
+end;
+$$;
+
+revoke all on function public.pull_sync_records(timestamptz, text, text, integer) from public;
+revoke all on function public.pull_sync_records(timestamptz, text, text, integer) from anon;
+grant execute on function public.pull_sync_records(timestamptz, text, text, integer) to authenticated;
+
 create or replace function public.seed_sync_records(
   snapshot_payload jsonb,
   device_id text

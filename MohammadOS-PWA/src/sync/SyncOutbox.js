@@ -79,6 +79,39 @@ export async function getPendingMutations(limit = 50, table = db.syncOutbox) {
     .slice(0, Math.max(1, Number(limit) || 50));
 }
 
+export async function getMutationsForEntities(keys, table = db.syncOutbox) {
+  const normalizedKeys = new Set(
+    (keys || [])
+      .filter((key) => key?.entity && key?.entityId)
+      .map((key) => `${key.entity}\u0000${key.entityId}`)
+  );
+  if (normalizedKeys.size === 0) return [];
+
+  const records = await table.toArray();
+  return records.filter((record) => normalizedKeys.has(
+    `${record.entity}\u0000${record.entityId}`
+  ));
+}
+
+export async function getConflictMutations(table = db.syncOutbox) {
+  return table.where("status").equals(OUTBOX_STATUSES.CONFLICT).toArray();
+}
+
+export async function requeueConflict(opId, baseVersion, table = db.syncOutbox) {
+  const mutation = await table.get(opId);
+  if (!mutation || mutation.status !== OUTBOX_STATUSES.CONFLICT) return false;
+  await table.put({
+    ...mutation,
+    status: OUTBOX_STATUSES.PENDING,
+    baseVersion: Number.isFinite(Number(baseVersion)) ? Number(baseVersion) : mutation.conflictVersion ?? null,
+    nextRetryAt: null,
+    lastError: null,
+    conflictVersion: null,
+    conflictRemote: null,
+  });
+  return true;
+}
+
 export async function completeMutations(opIds, table = db.syncOutbox) {
   const ids = [...new Set((opIds || []).filter(Boolean))];
   if (ids.length > 0) await table.bulkDelete(ids);
@@ -142,6 +175,9 @@ export const SyncOutbox = {
   enqueueMutation,
   enqueueMutations,
   getPendingMutations,
+  getMutationsForEntities,
+  getConflictMutations,
+  requeueConflict,
   completeMutations,
   markMutationsFailed,
   markMutationsConflict,

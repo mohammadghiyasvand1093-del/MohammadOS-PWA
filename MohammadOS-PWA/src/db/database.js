@@ -678,4 +678,33 @@ db.version(23).stores({
   syncOutbox: "opId, entity, entityId, operation, status, createdAt, nextRetryAt, [entity+entityId]",
 });
 
+/* =========================
+ * v24 — record sync tombstones
+ * Keep the remote deletion version locally so a deleted record is not
+ * re-applied on every manual pull.
+ * ========================= */
+db.version(24).stores({
+  habits: "id, date, habitId, domain, lastEmaDate, strengthBeforeToday",
+  courses: "id, name, instructor",
+  courseSessions:
+    "id, courseId, date, episodeNumber, status, [courseId+status]",
+  fixedEvents: "id, dayOfWeek, title, startTime, endTime",
+  schedules:
+    "id, scheduleMode, dayOfWeek, dateKey, planId, startDate, endDate",
+  dayLogs:
+    "date, fullDay, year, month, week, dayOfWeek, status, [year+month]",
+  activeTimer: "id, taskRefId, isRunning",
+  gates: "id, title, order",
+  drafts: "key",
+  lifeWheelScores:
+    "id, periodKey, startDate, endDate, year, month, week, [year+month]",
+  importHistory: "id, type, importedAt",
+  events: "id, type, aggregate, aggregateId, createdAt",
+  logs: "id, level, createdAt",
+  sync_queue: "id, eventId, status, createdAt, retryAt",
+  syncMeta: "key",
+  syncOutbox: "opId, entity, entityId, operation, status, createdAt, nextRetryAt, [entity+entityId]",
+  syncTombstones: "[entity+entityId], entity, entityId, version, updatedAt",
+});
+
 export default db;

@@ -16,6 +16,7 @@ function getErrorMessage(error) {
   if (
     error?.message?.includes("sync_records")
     || error?.message?.includes("get_sync_record_status")
+    || error?.message?.includes("pull_sync_records")
     || error?.message?.includes("seed_sync_records")
   ) {
     return "زیرساخت همگام‌سازی رکوردی در Supabase نصب نشده است؛ فایل supabase/record_sync_schema.sql را اجرا کنید.";
@@ -31,7 +32,9 @@ function getErrorMessage(error) {
 
 function getSyncState(status, isOnline) {
   if (!isOnline) return { label: "آفلاین", tone: "text-red-300", detail: "تغییرات محلی محفوظ هستند." };
-  if (status?.hasConflict) return { label: "تعارض", tone: "text-amber-300", detail: "قبل از ادامه یکی از نسخه‌ها را انتخاب کن." };
+  if (status?.hasConflict || status?.outbox?.conflictCount > 0) {
+    return { label: "تعارض", tone: "text-amber-300", detail: "قبل از ادامه یکی از نسخه‌ها را انتخاب کن." };
+  }
   if (status?.retryAt) return { label: "در انتظار تلاش دوباره", tone: "text-sky-300", detail: "خطای موقت ثبت شده است." };
   if (status?.localChanged || status?.outbox?.pendingCount > 0) {
     return { label: "در انتظار ارسال", tone: "text-amber-300", detail: "تغییرات این دستگاه هنوز در ابر ثبت نشده‌اند." };
@@ -48,6 +51,7 @@ export default function SyncPage() {
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState(null);
   const [recordStatus, setRecordStatus] = useState(null);
+  const [recordConflicts, setRecordConflicts] = useState([]);
   const [recordBusy, setRecordBusy] = useState("");
   const userId = user?.id;
 
@@ -78,6 +82,27 @@ export default function SyncPage() {
     window.addEventListener("mohammados:sync-applied", handleSyncApplied);
     return () => window.removeEventListener("mohammados:sync-applied", handleSyncApplied);
   }, [refresh]);
+
+  useEffect(() => {
+    if (!userId || !isOnline) return undefined;
+    let cancelled = false;
+    void Promise.all([
+      RecordSyncService.getRemoteStatus(userId),
+      RecordSyncService.getConflicts(),
+    ])
+      .then(([nextStatus, nextConflicts]) => {
+        if (!cancelled) {
+          setRecordStatus(nextStatus);
+          setRecordConflicts(nextConflicts);
+        }
+      })
+      .catch(() => {
+        // The explicit status button keeps the failure visible without blocking the page.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOnline, userId]);
 
   async function runAction(action, successText) {
     if (!isOnline || busy) return;
@@ -148,8 +173,12 @@ export default function SyncPage() {
     setRecordBusy("status");
     setMessage(null);
     try {
-      const nextStatus = await RecordSyncService.getRemoteStatus(userId);
+      const [nextStatus, nextConflicts] = await Promise.all([
+        RecordSyncService.getRemoteStatus(userId),
+        RecordSyncService.getConflicts(),
+      ]);
       setRecordStatus(nextStatus);
+      setRecordConflicts(nextConflicts);
       if (nextStatus.status === "unavailable") {
         setMessage({ type: "error", text: getErrorMessage(nextStatus.error) });
       } else {
@@ -197,6 +226,118 @@ export default function SyncPage() {
         setMessage({ type: "error", text: "حجم نسخهٔ پایه زیاد است؛ ابتدا داده‌های غیرضروری را پاک یا جداگانه بکاپ بگیر." });
       } else {
         setMessage({ type: "error", text: "ساخت نسخهٔ پایه با وضعیت نامشخص متوقف شد؛ دوباره بررسی کن." });
+      }
+    } catch (error) {
+      setMessage({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setRecordBusy("");
+    }
+  }
+
+  async function updateRecordStatusSilently() {
+    if (!userId || !isOnline) return null;
+    const [nextStatus, nextConflicts] = await Promise.all([
+      RecordSyncService.getRemoteStatus(userId),
+      RecordSyncService.getConflicts(),
+    ]);
+    setRecordStatus(nextStatus);
+    setRecordConflicts(nextConflicts);
+    return nextStatus;
+  }
+
+  async function resolveRecordConflict(opId, choice) {
+    if (!userId || recordBusy) return;
+    const prompt = choice === "cloud"
+      ? "نسخهٔ ابری جایگزین نسخهٔ محلی این رکورد شود؟"
+      : "نسخهٔ محلی نگه داشته و برای ارسال دوباره آماده شود؟";
+    if (!window.confirm(prompt)) return;
+
+    setRecordBusy("resolve-" + opId);
+    setMessage(null);
+    try {
+      const result = await RecordSyncService.resolveConflict(opId, choice);
+      if (result.status === "resolved_cloud") {
+        setMessage({ type: "success", text: "نسخهٔ ابری پذیرفته شد و تعارض بسته شد." });
+      } else if (result.status === "requeued_local") {
+        setMessage({ type: "info", text: "نسخهٔ محلی نگه داشته شد؛ برای ثبت آن در ابر، ارسال تغییرات رکوردی را بزن." });
+      } else {
+        setMessage({ type: "error", text: "این تعارض دیگر وجود ندارد؛ وضعیت را تازه‌سازی کردم." });
+      }
+      await updateRecordStatusSilently();
+    } catch (error) {
+      setMessage({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setRecordBusy("");
+    }
+  }
+
+  async function pullRecordChanges() {
+    if (!isOnline || recordBusy || !userId || !recordStatus?.seeded) return;
+    setRecordBusy("pull");
+    setMessage(null);
+    try {
+      const result = await RecordSyncService.pullRemote(userId);
+      await updateRecordStatusSilently();
+      if (result.status === "pulled") {
+        setMessage({
+          type: "success",
+          text: `${result.applied} تغییر رکوردی دریافت شد؛ ${result.ignored} رکورد از قبل جدیدتر یا برابر بود.`,
+        });
+      } else if (result.status === "conflict") {
+        setMessage({
+          type: "conflict",
+          text: `${result.conflicts.length} تعارض شناسایی شد؛ تغییرات محلی دست‌نخورده ماند و هنوز چیزی حذف نشد.`,
+        });
+      } else if (result.status === "idle") {
+        setMessage({ type: "info", text: "تغییر رکوردی جدیدی برای دریافت وجود نداشت." });
+      } else if (result.status === "needs_setup") {
+        setMessage({
+          type: "error",
+          text: `${result.untrackedLocalCount} رکورد محلی هنوز نسخهٔ پایه ندارد؛ ابتدا از داده‌ها بکاپ بگیر و این دستگاه را برای دریافت آماده کن.`,
+        });
+      } else if (result.status === "not_seeded") {
+        setMessage({ type: "error", text: "ابتدا برای این حساب نسخهٔ پایه بساز." });
+      } else if (result.status === "unavailable") {
+        setMessage({ type: "error", text: getErrorMessage(result.error) });
+      } else if (result.status === "offline") {
+        setMessage({ type: "error", text: "اینترنت قطع است؛ دریافت رکوردها فعلاً انجام نمی‌شود." });
+      } else {
+        setMessage({ type: "error", text: result.error || "دریافت رکوردها کامل نشد." });
+      }
+    } catch (error) {
+      setMessage({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setRecordBusy("");
+    }
+  }
+
+  async function pushRecordChanges() {
+    if (!isOnline || recordBusy || !userId || !recordStatus?.seeded) return;
+    setRecordBusy("push");
+    setMessage(null);
+    try {
+      const result = await RecordSyncService.pushPending(userId);
+      await updateRecordStatusSilently();
+      if (result.status === "synced") {
+        setMessage({
+          type: "success",
+          text: `${result.accepted} تغییر محلی در فضای ابری ثبت شد.`,
+        });
+      } else if (result.status === "conflict") {
+        setMessage({
+          type: "conflict",
+          text: `${result.conflicts} تعارض شناسایی شد؛ تغییرات متعارض برای تصمیم‌گیری نگه داشته شدند.`,
+        });
+      } else if (result.status === "idle") {
+        setMessage({ type: "info", text: "تغییر محلیِ منتظر ارسال وجود ندارد." });
+      } else if (result.status === "not_seeded") {
+        setMessage({ type: "error", text: "ابتدا برای این حساب نسخهٔ پایه بساز." });
+      } else if (result.status === "unavailable") {
+        setMessage({ type: "error", text: getErrorMessage(result.error) });
+      } else if (result.status === "offline") {
+        setMessage({ type: "error", text: "اینترنت قطع است؛ ارسال رکوردها فعلاً انجام نمی‌شود." });
+      } else {
+        setMessage({ type: "error", text: getErrorMessage(result.error) });
       }
     } catch (error) {
       setMessage({ type: "error", text: getErrorMessage(error) });
@@ -267,9 +408,9 @@ export default function SyncPage() {
         <div className="rounded-xl border border-os-border bg-os-card p-4">
           <p className="text-[10px] text-os-text/45">تغییرات در صف</p>
           <p className="mt-2 text-sm font-bold text-os-accent">
-            {loading ? "..." : status?.outbox?.pendingCount || 0}
+            {loading ? "..." : (status?.outbox?.pendingCount || 0) + recordConflicts.length}
           </p>
-          <p className="mt-1 text-[10px] leading-5 text-os-text/45">قبل از ارسال Snapshot، محلی ثبت می‌شوند.</p>
+          <p className="mt-1 text-[10px] leading-5 text-os-text/45">تغییرات محلی و تعارض‌های باز.</p>
         </div>
       </section>
 
@@ -324,7 +465,7 @@ export default function SyncPage() {
             <h2 className="mt-2 font-bold">نسخهٔ پایهٔ رکوردی</h2>
             <p className="mt-2 max-w-2xl text-[11px] leading-6 text-os-text/55">
               داده‌های فعلی همین حساب را با شناسهٔ هر رکورد در ابر ثبت می‌کند تا مرحلهٔ بعد بتواند تغییرات گوشی و لپ‌تاپ را دقیق‌تر ترکیب کند.
-              این عملیات دستی، یک‌بارمصرف و غیرمخرب است؛ ارسال و دریافت خودکار هنوز فعال نمی‌شود.
+              این عملیات دستی، یک‌بارمصرف و غیرمخرب است؛ ارسال و دریافت رکوردی هنوز خودکار نشده است.
             </p>
           </div>
           <span className={`rounded-full border px-3 py-1 text-[10px] ${
@@ -366,8 +507,77 @@ export default function SyncPage() {
           >
             {recordBusy === "seed" ? "در حال ساخت..." : "ساخت نسخهٔ پایه"}
           </button>
+          <button
+            type="button"
+            onClick={() => void pullRecordChanges()}
+            disabled={!isOnline || Boolean(recordBusy) || !recordStatus?.seeded}
+            className="rounded-lg border border-emerald-500/50 px-3 py-2 text-[11px] text-emerald-300 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {recordBusy === "pull" ? "در حال دریافت..." : "دریافت تغییرات رکوردی"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void pushRecordChanges()}
+            disabled={!isOnline || Boolean(recordBusy) || !recordStatus?.seeded}
+            className="rounded-lg border border-amber-500/50 px-3 py-2 text-[11px] text-amber-300 hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {recordBusy === "push" ? "در حال ارسال..." : "ارسال تغییرات رکوردی"}
+          </button>
         </div>
       </section>
+
+      {recordConflicts.length > 0 && (
+        <section className="rounded-xl border border-amber-500/40 bg-os-card p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-mono tracking-widest text-amber-300">CONFLICT REVIEW</p>
+              <h2 className="mt-2 font-bold text-amber-200">تعارض‌های نیازمند تصمیم</h2>
+              <p className="mt-2 text-[11px] leading-6 text-os-text/55">
+                هیچ داده‌ای خودکار حذف نشده است. برای هر رکورد مشخص کن نسخهٔ ابری بماند یا تغییر محلی دوباره ارسال شود.
+              </p>
+            </div>
+            <span className="rounded-full border border-amber-500/40 px-3 py-1 text-[10px] text-amber-300">
+              {recordConflicts.length} مورد در انتظار
+            </span>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {recordConflicts.map((conflict) => (
+              <div key={conflict.opId} className="rounded-lg border border-os-border bg-os-bg/50 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 text-[11px] leading-6">
+                    <p className="font-bold text-os-text">{conflict.entity}</p>
+                    <p className="break-all text-os-text/55" dir="ltr">{conflict.entityId}</p>
+                    <p className="text-os-text/55">
+                      عملیات محلی: <span className="text-os-text/80">{conflict.operation === "delete" ? "حذف" : "ویرایش"}</span>
+                      {" — "}نسخهٔ ابری: <span className="text-amber-300">{conflict.conflictVersion || "جدید"}</span>
+                    </p>
+                    {conflict.lastError && <p className="text-red-300/80">{conflict.lastError}</p>}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void resolveRecordConflict(conflict.opId, "cloud")}
+                      disabled={Boolean(recordBusy)}
+                      className="rounded border border-sky-500/50 px-3 py-2 text-[11px] text-sky-300 hover:bg-sky-500/10 disabled:opacity-40"
+                    >
+                      پذیرش نسخهٔ ابری
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void resolveRecordConflict(conflict.opId, "local")}
+                      disabled={Boolean(recordBusy)}
+                      className="rounded border border-amber-500/50 px-3 py-2 text-[11px] text-amber-300 hover:bg-amber-500/10 disabled:opacity-40"
+                    >
+                      نگه‌داشتن نسخهٔ محلی
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="rounded-xl border border-os-border bg-os-card p-4">
         <h2 className="font-bold">آخرین وضعیت</h2>
@@ -396,7 +606,7 @@ export default function SyncPage() {
         )}
         <p className="mt-4 rounded-lg border border-os-border/60 bg-os-bg/50 p-3 text-[11px] leading-6 text-os-text/50">
           نکته: Snapshot فعلی همچنان روش فعال همگام‌سازی است. زیرساخت رکوردی
-          تا تکمیل seed، دریافت کامل و رابط حل تعارض عمداً غیرفعال مانده است.
+          دریافت، ارسال و حل تعارض فعلاً دستی است؛ اجرای خودکار عمداً تا پایان تست دو دستگاه خاموش مانده است.
         </p>
       </section>
     </div>

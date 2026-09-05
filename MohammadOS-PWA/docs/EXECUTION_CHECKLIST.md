@@ -8,8 +8,8 @@
 - [x] Add automated tests for date, Persian week, schedule signatures, and habit
   recurrence validation.
 - [x] Add a repeatable `npm run test` command.
-- [x] Add a disabled record-level sync foundation with a one-time baseline
-  seed and a visible preparation status.
+- [x] Add a record-level sync foundation with a one-time baseline seed, paginated
+  manual pull/push, and a visible preparation status.
 
 ## Phase 1 — stability and mobile
 
@@ -44,15 +44,16 @@
 - [x] Add retry backoff metadata for temporary cloud failures.
 - [x] Show synced, pending, offline, retry-wait, conflict, and failed states.
 - [x] Refresh the active app after an automatic cloud pull.
-- [ ] Migrate from snapshot sync to record-level atomic domain-write + outbox.
+- [ ] Migrate from snapshot sync to automatic record-level atomic domain-write + outbox.
 - [x] Add the local outbox table and atomic helper contract as a transition bridge.
 - [x] Record habit, schedule, gate, course, day-log, and life-wheel mutations in the local outbox.
 - [x] Show the local outbox count on the Sync page.
+- [x] Add paginated manual record pull and manual outbox push after baseline setup.
 - [ ] Run `supabase/record_sync_schema.sql` in the production Supabase project
   and verify the baseline status for owner and guest independently.
 - [ ] Add record-level retry queue with backoff and offline mutation delivery.
-- [ ] Add tombstones for deletions.
-- [ ] Add record-level conflict resolution and tombstone acknowledgement.
+- [x] Add server tombstones and safe manual application of remote deletions.
+- [x] Add record-level conflict choices and local tombstone acknowledgement.
 - [ ] Migrate existing Dexie data only after a local backup is verified.
 - [ ] Test two devices editing the same record.
 
