@@ -10,6 +10,7 @@
 - [x] Add a repeatable `npm run test` command.
 - [x] Add a record-level sync foundation with a one-time baseline seed, paginated
   manual pull/push, and a visible preparation status.
+- [x] Add a read-only record-sync schema verification query and production runbook.
 
 ## Phase 1 — stability and mobile
 

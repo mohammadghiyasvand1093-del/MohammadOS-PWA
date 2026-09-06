@@ -45,6 +45,7 @@ create table if not exists public.sync_baselines (
 );
 
 alter table public.sync_records enable row level security;
+alter table public.sync_operations enable row level security;
 alter table public.sync_baselines enable row level security;
 
 revoke all on table public.sync_records from anon, authenticated;
