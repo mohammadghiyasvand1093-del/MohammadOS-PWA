@@ -1,6 +1,5 @@
 // src/pages/ReportsPage.jsx
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { useAuth } from "../auth/AuthContext";
 import { GateRepository } from "../repositories/GateRepository";
 import { ScheduleRepository } from "../repositories/ScheduleRepository";
 import { ImportService, IMPORT_TABLES } from "../app/ImportService";
@@ -17,7 +16,6 @@ import {
   DATED_PLANNER_GUIDE_TEXT,
 } from "../ai/weeklyPlannerPrompt";
 import { importDatedSchedule, importWeeklySchedule } from "../app/ImportService";
-import { RecordSyncService } from "../sync/RecordSyncService";
 
 const DOMAINS = [
   { key: "learning", label: "یادگیری", icon: "📚" }, { key: "fitness", label: "تناسب‌اندام", icon: "💪" },
@@ -49,8 +47,6 @@ function entryActualMinutes(entry) {
 }
 
 export default function ReportsPage() {
-  const { user } = useAuth();
-  const userId = user?.id;
   const [activeTab, setActiveTab] = useState("weekly");
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
@@ -327,33 +323,8 @@ export default function ReportsPage() {
     if (!importPreview || !importFileContent) return;
     if (!window.confirm("⚠️ این عمل داده‌های فعلی را بازنویسی می‌کند. ادامه می‌دهی؟")) return;
     setImportStatus("IMPORTING...");
-    try {
-      await exportToJSON("all");
-
-      let syncStrategy = "local";
-      if (userId) {
-        if (typeof navigator !== "undefined" && !navigator.onLine) {
-          throw new Error("برای بازگردانی امن در حساب واردشده، ابتدا آنلاین شو تا وضعیت همگام‌سازی بررسی شود.");
-        }
-        const remoteStatus = await RecordSyncService.getRemoteStatus(userId);
-        if (remoteStatus.status === "unavailable") {
-          throw new Error("وضعیت همگام‌سازی رکوردی مشخص نیست؛ ابتدا migration همگام‌سازی را بررسی و دوباره تلاش کن.");
-        }
-        syncStrategy = remoteStatus.seeded ? "record" : "local";
-      }
-
-      await ImportService.importData(
-        importFileContent?.tables || importFileContent,
-        { syncStrategy }
-      );
-      setImportStatus(syncStrategy === "record"
-        ? "✅ IMPORT COMPLETE — تغییرات restore در صف همگام‌سازی قرار گرفت؛ در حال بارگذاری..."
-        : "✅ IMPORT COMPLETE — در حال بارگذاری...");
-      setTimeout(() => window.location.reload(), 1500);
-    } catch (err) {
-      setImportStatus("❌ IMPORT FAILED: " + err.message);
-    }
-  }, [importFileContent, importPreview, userId]);
+    try { await ImportService.importData(importFileContent?.tables || importFileContent); setImportStatus("✅ IMPORT COMPLETE — Reloading page..."); setTimeout(() => window.location.reload(), 1500); } catch (err) { setImportStatus("❌ IMPORT FAILED: " + err.message); }
+  }, [importFileContent, importPreview]);
 
   const handleClearImport = useCallback(() => { setImportFile(null); setImportFileContent(null); setImportPreview(null); setImportStatus(""); if (fileInputRef.current) fileInputRef.current.value = ""; }, []);
 

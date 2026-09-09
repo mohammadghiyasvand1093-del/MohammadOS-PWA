@@ -15,17 +15,12 @@ import {
   SCHEDULE_MODES,
 } from "../src/utils/schedule.js";
 import { validateHabit } from "../src/domain/validation/habitValidator.js";
+import { validateImportPayload } from "../src/domain/validation/importValidator.js";
 import {
   createMutation,
   OUTBOX_OPERATIONS,
   OUTBOX_STATUSES,
 } from "../src/sync/SyncOutboxContract.js";
-import {
-  buildRestoreMutations,
-  getRestorePayload,
-  recordsHaveMeaningfulChanges,
-} from "../src/app/restoreSync.js";
-import { validateImportPayload } from "../src/domain/validation/importValidator.js";
 
 test("date keys are validated strictly", () => {
   assert.equal(isDateKey("2026-08-29"), true);
@@ -125,49 +120,6 @@ test("outbox rejects incomplete mutations", () => {
   );
 });
 
-test("record restore ignores sync metadata-only changes", () => {
-  assert.equal(
-    recordsHaveMeaningfulChanges(
-      { id: "h1", name: "مطالعه", syncVersion: 2 },
-      { id: "h1", name: "مطالعه", syncVersion: 7 }
-    ),
-    false
-  );
-  assert.deepEqual(
-    getRestorePayload({ id: "h1", name: "مطالعه", syncVersion: 7 }),
-    { id: "h1", name: "مطالعه" }
-  );
-});
-
-test("record restore queues only added, changed, and deleted records", () => {
-  const mutations = buildRestoreMutations({
-    tableName: "habits",
-    idField: "id",
-    previousRecords: [
-      { id: "same", name: "بدون تغییر", syncVersion: 2 },
-      { id: "changed", name: "قدیمی", syncVersion: 3 },
-      { id: "deleted", name: "حذف‌شده", syncVersion: 4 },
-    ],
-    importedRecords: [
-      { id: "same", name: "بدون تغییر", syncVersion: 8 },
-      { id: "changed", name: "جدید", syncVersion: 3 },
-      { id: "added", name: "جدید اضافه‌شده" },
-    ],
-  });
-
-  assert.deepEqual(
-    mutations.map(({ entityId, operation = "upsert", baseVersion }) => ({
-      entityId,
-      operation,
-      baseVersion,
-    })),
-    [
-      { entityId: "changed", operation: "upsert", baseVersion: 3 },
-      { entityId: "added", operation: "upsert", baseVersion: undefined },
-      { entityId: "deleted", operation: "delete", baseVersion: 4 },
-    ]
-  );
-});
 
 test("import validator accepts the current export shape", () => {
   assert.doesNotThrow(() => validateImportPayload({
