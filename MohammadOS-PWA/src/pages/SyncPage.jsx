@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
+import { exportToJSON, getDaysSinceLastBackup } from "../app/exportData";
 import { SyncService } from "../sync/SyncService";
 import { RecordSyncService } from "../sync/RecordSyncService";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
@@ -43,6 +44,14 @@ function getSyncState(status, isOnline) {
   return { label: "آمادهٔ اتصال", tone: "text-os-text/70", detail: "برای شروع، ارسال یا دریافت را انتخاب کن." };
 }
 
+const BACKUP_MAX_AGE_DAYS = 7;
+
+function formatBackupAge(days) {
+  if (days === Infinity) return "هنوز بکاپی ثبت نشده";
+  if (days <= 0) return "امروز";
+  return `${days} روز پیش`;
+}
+
 export default function SyncPage() {
   const { user } = useAuth();
   const isOnline = useOnlineStatus();
@@ -53,6 +62,8 @@ export default function SyncPage() {
   const [recordStatus, setRecordStatus] = useState(null);
   const [recordConflicts, setRecordConflicts] = useState([]);
   const [recordBusy, setRecordBusy] = useState("");
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupAge, setBackupAge] = useState(() => getDaysSinceLastBackup());
   const userId = user?.id;
 
   const refresh = useCallback(async () => {
@@ -200,8 +211,33 @@ export default function SyncPage() {
 
   async function seedRecordBaseline() {
     if (!isOnline || recordBusy || !userId) return;
+
+    const currentBackupAge = getDaysSinceLastBackup();
+    if (currentBackupAge > BACKUP_MAX_AGE_DAYS) {
+      if (!window.confirm(
+        `برای ایمنی، قبل از ساخت نسخهٔ پایه یک بکاپ کامل از داده‌های محلی ساخته شود؟\n\nوضعیت بکاپ: ${formatBackupAge(currentBackupAge)}`
+      )) return;
+
+      setBackupBusy(true);
+      setMessage(null);
+      try {
+        await exportToJSON("all");
+        const nextBackupAge = getDaysSinceLastBackup();
+        setBackupAge(nextBackupAge);
+        if (nextBackupAge > BACKUP_MAX_AGE_DAYS) {
+          setMessage({ type: "error", text: "بکاپ ساخته شد اما زمان آن قابل تأیید نیست؛ ساخت نسخهٔ پایه متوقف شد." });
+          return;
+        }
+      } catch (error) {
+        setMessage({ type: "error", text: `ساخت بکاپ انجام نشد؛ نسخهٔ پایه ساخته نشد. ${error?.message || ""}`.trim() });
+        return;
+      } finally {
+        setBackupBusy(false);
+      }
+    }
+
     if (!window.confirm(
-      "از داده‌های فعلی این حساب یک نسخهٔ پایهٔ رکوردی در Supabase ساخته شود؟ این کار فقط یک‌بار انجام می‌شود و همگام‌سازی خودکار را فعال نمی‌کند."
+      "از داده‌های فعلی این حساب یک نسخهٔ پایهٔ رکوردی در Supabase ساخته شود؟ این کار فقط یک‌بار انجام می‌شود؛ بعد از آن ارسال تغییرات صف‌شده خودکار خواهد بود و دریافت/حل تعارض با تصمیم تو انجام می‌شود."
     )) return;
 
     setRecordBusy("seed");
@@ -467,7 +503,7 @@ export default function SyncPage() {
             <h2 className="mt-2 font-bold">نسخهٔ پایهٔ رکوردی</h2>
             <p className="mt-2 max-w-2xl text-[11px] leading-6 text-os-text/55">
               داده‌های فعلی همین حساب را با شناسهٔ هر رکورد در ابر ثبت می‌کند تا مرحلهٔ بعد بتواند تغییرات گوشی و لپ‌تاپ را دقیق‌تر ترکیب کند.
-              ساخت نسخهٔ پایه یک‌بارمصرف و غیرمخرب است؛ ارسال صف‌شده خودکار انجام می‌شود و دریافت و حل تعارض با تصمیم کاربر است.
+              ساخت نسخهٔ پایه یک‌بارمصرف و غیرمخرب است؛ قبل از آن بکاپ کامل بررسی می‌شود. بعد از ساخت، ارسال صف‌شده خودکار انجام می‌شود و دریافت و حل تعارض با تصمیم کاربر است.
             </p>
           </div>
           <span className={`rounded-full border px-3 py-1 text-[10px] ${
@@ -492,6 +528,12 @@ export default function SyncPage() {
           </p>
         )}
 
+        {!recordStatus?.seeded && (
+          <p className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-[11px] leading-6 text-amber-200/80">
+            پیش‌نیاز ایمنی: {formatBackupAge(backupAge)}. اگر بیشتر از {BACKUP_MAX_AGE_DAYS} روز گذشته باشد، برنامه قبل از ساخت نسخهٔ پایه بکاپ کامل می‌سازد.
+          </p>
+        )}
+
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
@@ -504,10 +546,10 @@ export default function SyncPage() {
           <button
             type="button"
             onClick={() => void seedRecordBaseline()}
-            disabled={!isOnline || Boolean(recordBusy) || recordStatus?.seeded}
+            disabled={!isOnline || Boolean(recordBusy) || backupBusy || recordStatus?.seeded}
             className="rounded-lg bg-sky-500/90 px-3 py-2 text-[11px] font-bold text-os-bg hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {recordBusy === "seed" ? "در حال ساخت..." : "ساخت نسخهٔ پایه"}
+            {backupBusy ? "در حال ساخت بکاپ..." : recordBusy === "seed" ? "در حال ساخت..." : "ساخت نسخهٔ پایه"}
           </button>
           <button
             type="button"

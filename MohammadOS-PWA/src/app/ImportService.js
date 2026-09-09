@@ -1,11 +1,24 @@
 // src/app/ImportService.js
 import { db } from "../db/database";
 import { ScheduleRepository } from "../repositories/ScheduleRepository";
+import { enqueueMutation } from "../sync/SyncOutbox";
+import { buildRestoreMutations } from "./restoreSync";
 import { getDateRangeInclusive, isDateKey, SCHEDULE_MODES } from "../utils/schedule";
 import { IMPORT_TABLES as VALIDATED_IMPORT_TABLES, validateImportPayload } from "../domain/validation/importValidator";
 
 // ✅ Nazer 2 Fix: Corrected table names to match database.js schema
 export const IMPORT_TABLES = VALIDATED_IMPORT_TABLES;
+
+const SYNCABLE_TABLES = Object.freeze({
+  habits: "id",
+  courses: "id",
+  courseSessions: "id",
+  fixedEvents: "id",
+  schedules: "id",
+  dayLogs: "date",
+  gates: "id",
+  lifeWheelScores: "id",
+});
 
 // ═══════════════════════════════════════════
 // بچ ۷۲ — Data Compression (Import)
@@ -16,15 +29,17 @@ async function decompressGzip(file) {
   return await response.text();
 }
 
-
-
 export const ImportService = {
-  async importData(tables) {
+  async importData(tables, { syncStrategy = "local" } = {}) {
     const validatedTables = validateImportPayload(tables);
+    if (!["local", "record"].includes(syncStrategy)) {
+      throw new Error("INVALID_IMPORT_SYNC_STRATEGY");
+    }
 
     const tableInstances = IMPORT_TABLES
       .map((t) => db[t])
       .filter(Boolean);
+    if (syncStrategy === "record") tableInstances.push(db.syncOutbox);
 
     await db.transaction("rw", ...tableInstances, async () => {
       for (const tableName of IMPORT_TABLES) {
@@ -32,8 +47,25 @@ export const ImportService = {
         const records = validatedTables[tableName];
         const table = db[tableName];
         if (table) {
+          const previous = SYNCABLE_TABLES[tableName]
+            ? await table.toArray()
+            : [];
           await table.clear();
           if (records.length > 0) await table.bulkPut(records);
+
+          if (syncStrategy === "record" && SYNCABLE_TABLES[tableName]) {
+            const mutations = buildRestoreMutations({
+              tableName,
+              idField: SYNCABLE_TABLES[tableName],
+              previousRecords: previous,
+              importedRecords: records,
+            });
+            for (const mutation of mutations) {
+              await enqueueMutation({
+                ...mutation,
+              }, db.syncOutbox);
+            }
+          }
         }
       }
     });
