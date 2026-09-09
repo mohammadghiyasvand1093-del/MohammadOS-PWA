@@ -15,6 +15,7 @@ import {
   SCHEDULE_MODES,
 } from "../src/utils/schedule.js";
 import { validateHabit } from "../src/domain/validation/habitValidator.js";
+import { validateImportPayload } from "../src/domain/validation/importValidator.js";
 import {
   createMutation,
   OUTBOX_OPERATIONS,
@@ -116,5 +117,86 @@ test("outbox rejects incomplete mutations", () => {
   assert.throws(
     () => createMutation({ entity: "habits", entityId: "h", operation: "replace" }),
     /operation is invalid/
+  );
+});
+
+
+test("import validator accepts the current export shape", () => {
+  assert.doesNotThrow(() => validateImportPayload({
+    app: "MohammadOS-PWA",
+    schemaVersion: 2,
+    range: "all",
+    habits: [{
+      id: "habit-1",
+      name: "مطالعه",
+      domain: "learning",
+      recurrence: { type: "daily" },
+      isCritical: false,
+      done: false,
+      date: "2026-09-08",
+      createdAt: "2026-09-08T08:00:00.000Z",
+      updatedAt: "2026-09-08T08:00:00.000Z",
+      habitStrength: 0.5,
+      lastEmaDate: null,
+      strengthBeforeToday: 0,
+    }],
+    dayLogs: [{
+      date: "2026-09-08",
+      entries: [{ id: "entry-1", title: "مطالعه", done: false, isCritical: false }],
+      mood: null,
+      fullDay: false,
+      fullDayScore: 0,
+      status: "active",
+    }],
+    courses: [],
+    courseSessions: [],
+    schedules: [],
+    gates: [],
+    lifeWheelScores: [],
+    fixedEvents: [],
+  }));
+});
+
+test("import validator rejects malformed top-level payloads and unknown stores", () => {
+  assert.throws(() => validateImportPayload(null), /top-level payload/);
+  assert.throws(() => validateImportPayload([]), /top-level payload/);
+  assert.throws(() => validateImportPayload({ app: "MohammadOS-PWA" }), /no import tables/);
+  assert.throws(
+    () => validateImportPayload({ habits: [], unknownStore: [] }),
+    /unknown import store/
+  );
+  assert.throws(
+    () => validateImportPayload({ tables: { habits: [] }, unknownField: true }),
+    /unknown top-level field/
+  );
+});
+
+test("import validator rejects missing required fields and invalid primary keys", () => {
+  assert.throws(
+    () => validateImportPayload({ habits: [{ id: "habit-1", recurrence: { type: "daily" } }] }),
+    /store=habits.*field=name/
+  );
+  assert.throws(
+    () => validateImportPayload({ habits: [{ name: "مطالعه", recurrence: { type: "daily" } }] }),
+    /store=habits.*field=id/
+  );
+});
+
+test("import validator rejects wrong primitive and nested types", () => {
+  assert.throws(
+    () => validateImportPayload({ habits: [{ id: "habit-1", name: "مطالعه", recurrence: { type: "daily" }, isCritical: "false" }] }),
+    /field=isCritical/
+  );
+  assert.throws(
+    () => validateImportPayload({ dayLogs: [{ date: "2026-09-08", entries: "invalid" }] }),
+    /field=entries/
+  );
+  assert.throws(
+    () => validateImportPayload({ dayLogs: [{ date: "2026-09-08", entries: [{ done: "false" }] }] }),
+    /field=entries\[0\]\.done/
+  );
+  assert.throws(
+    () => validateImportPayload({ schedules: [{ id: "schedule-1", dayOfWeek: "monday", schedule: [{ title: "درس", startTime: 9 }] }] }),
+    /field=schedule\[0\]\.startTime/
   );
 });

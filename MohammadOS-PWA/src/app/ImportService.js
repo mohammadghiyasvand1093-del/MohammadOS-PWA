@@ -2,13 +2,10 @@
 import { db } from "../db/database";
 import { ScheduleRepository } from "../repositories/ScheduleRepository";
 import { getDateRangeInclusive, isDateKey, SCHEDULE_MODES } from "../utils/schedule";
+import { IMPORT_TABLES as VALIDATED_IMPORT_TABLES, validateImportPayload } from "../domain/validation/importValidator";
 
 // ✅ Nazer 2 Fix: Corrected table names to match database.js schema
-export const IMPORT_TABLES = [
-  "dayLogs", "habits", "courses", "gates", "schedules",
-  "courseSessions", "fixedEvents", "activeTimer", "drafts", "lifeWheelScores"
-];
-const MAX_RECORDS_PER_TABLE = 10000;
+export const IMPORT_TABLES = VALIDATED_IMPORT_TABLES;
 
 // ═══════════════════════════════════════════
 // بچ ۷۲ — Data Compression (Import)
@@ -19,34 +16,11 @@ async function decompressGzip(file) {
   return await response.text();
 }
 
-function validateImportTables(tables) {
-  if (!tables || typeof tables !== "object") {
-    throw new Error("INVALID_IMPORT_FORMAT");
-  }
 
-  for (const tableName of IMPORT_TABLES) {
-    const records = tables[tableName];
-    if (records === undefined) continue;
-
-    if (!Array.isArray(records)) {
-      throw new Error(`INVALID_TABLE_FORMAT: ${tableName}`);
-    }
-
-    if (records.length > MAX_RECORDS_PER_TABLE) {
-      throw new Error(
-        `TABLE_TOO_LARGE: ${tableName} (${records.length} records, max ${MAX_RECORDS_PER_TABLE})`
-      );
-    }
-
-    if (!db[tableName]) {
-      throw new Error(`UNKNOWN_TABLE: ${tableName}`);
-    }
-  }
-}
 
 export const ImportService = {
   async importData(tables) {
-    validateImportTables(tables);
+    const validatedTables = validateImportPayload(tables);
 
     const tableInstances = IMPORT_TABLES
       .map((t) => db[t])
@@ -54,8 +28,8 @@ export const ImportService = {
 
     await db.transaction("rw", ...tableInstances, async () => {
       for (const tableName of IMPORT_TABLES) {
-        if (!Object.prototype.hasOwnProperty.call(tables, tableName)) continue;
-        const records = Array.isArray(tables[tableName]) ? tables[tableName] : [];
+        if (!Object.prototype.hasOwnProperty.call(validatedTables, tableName)) continue;
+        const records = validatedTables[tableName];
         const table = db[tableName];
         if (table) {
           await table.clear();
