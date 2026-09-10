@@ -6,8 +6,20 @@ import { TimerRepository } from "../repositories/TimerRepository";
 import { HabitRepository } from "../repositories/HabitRepository";
 import { saveHabit } from "../app/saveHabit";
 import { deleteHabit } from "../app/deleteHabit";
-import { todayKey, getTodayEn, nowMs, getDayEnFromDateKey, toPersianDate } from "../utils/date"; // ✅ FIX 3.1
+import {
+  getDayEnFromDateKey,
+  nowMs,
+  toPersianDate,
+} from "../utils/date"; // ✅ FIX 3.1
+import { getPolicyTodayKey, parseCivilDateKey } from "../config/timePolicy";
 import { AggregationService } from "../service/aggregationService";
+
+function addCivilDays(dateKey, days) {
+  const { year, month, day } = parseCivilDateKey(dateKey);
+  const shifted = new Date(Date.UTC(year, month - 1, day));
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return shifted.toISOString().slice(0, 10);
+}
 
 function formatMs(ms) {
   if (isNaN(ms) || ms < 0) return "00:00:00";
@@ -58,14 +70,13 @@ export default function TodayPage() {
   const [searchParams] = useSearchParams();
   const dateParam = searchParams.get("date");
 
-  const targetDateKey = dateParam || todayKey();
-  const targetDayEn = dateParam ? getDayEnFromDateKey(dateParam) : getTodayEn();
+  const currentDateKey = getPolicyTodayKey();
+  const targetDateKey = dateParam || currentDateKey;
+  const targetDayEn = getDayEnFromDateKey(targetDateKey);
   const isHistorical = Boolean(dateParam);
 
-  const isToday = targetDateKey === todayKey();
-  const yesterday = new Date(nowMs());
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
+  const isToday = targetDateKey === currentDateKey;
+  const yesterdayKey = addCivilDays(currentDateKey, -1);
   const isYesterday = targetDateKey === yesterdayKey;
   const canFreeze = isToday || isYesterday;
 
