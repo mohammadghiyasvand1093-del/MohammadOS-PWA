@@ -6,26 +6,36 @@ import { GateRepository } from "../repositories/GateRepository";
 import { db } from "../db/database";
 import { toPersianDate, nowMs, getLocalDateKey } from "../utils/date";
 import { importDatedSchedule, importWeeklySchedule } from "../app/ImportService";
+import {
+  getPolicyDateKey,
+  getPolicyWeekKey,
+  getPolicyWeekRange,
+  getPolicyWeekRangeFromKey,
+  parseCivilDateKey,
+} from "../config/timePolicy";
 
 const WEEK_DAYS_SHORT = ["ش", "ی", "د", "س", "چ", "پ", "ج"];
 
-function getPersianWeekDates(reference = new Date(nowMs())) {
-  const d = new Date(reference);
-  const day = d.getDay();
-  const daysSinceSat = (day + 1) % 7;
-  const saturday = new Date(d);
-  saturday.setDate(d.getDate() - daysSinceSat);
+function addCivilDays(dateKey, days) {
+  const { year, month, day } = parseCivilDateKey(dateKey);
+  const shifted = new Date(Date.UTC(year, month - 1, day));
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return shifted.toISOString().slice(0, 10);
+}
 
-  const dates = [];
-  for (let i = 0; i < 7; i++) {
-    const date = new Date(saturday);
-    date.setDate(saturday.getDate() + i);
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, "0");
-    const dayNum = String(date.getDate()).padStart(2, "0");
-    dates.push(`${y}-${m}-${dayNum}`);
-  }
-  return dates;
+function getPersianWeekDates(reference = new Date(nowMs()), offset = 0) {
+  const referenceDateKey = getPolicyDateKey(reference);
+  const currentWeekRange = getPolicyWeekRange(referenceDateKey);
+  const targetDateKey = addCivilDays(
+    currentWeekRange.startDateKey,
+    offset * 7
+  );
+  const targetWeekKey = getPolicyWeekKey(targetDateKey);
+  const targetWeekRange = getPolicyWeekRangeFromKey(targetWeekKey);
+
+  return Array.from({ length: 7 }, (_, index) =>
+    addCivilDays(targetWeekRange.startDateKey, index)
+  );
 }
 
 // ✅ FIX: New urgency config (replaces 1-5 priority UI, priority field kept for compatibility)
@@ -59,8 +69,7 @@ export default function PlannerPage() {
 
   const weekDates = useMemo(() => {
     const reference = new Date(clockMs);
-    reference.setDate(reference.getDate() + weekOffset * 7);
-    return getPersianWeekDates(reference);
+    return getPersianWeekDates(reference, weekOffset);
   }, [clockMs, weekOffset]);
   const todayDateKey = (() => {
     const d = new Date(clockMs);

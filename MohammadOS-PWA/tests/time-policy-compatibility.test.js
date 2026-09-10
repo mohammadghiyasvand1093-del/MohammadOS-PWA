@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import process from "node:process";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 

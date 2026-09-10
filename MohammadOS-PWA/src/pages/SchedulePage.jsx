@@ -6,6 +6,13 @@ import { DayLogRepository } from "../repositories/DayLogRepository";
 import { exportScheduleToIcs } from "../app/exportSchedule";
 import { nowMs } from "../utils/date";
 import { SCHEDULE_MODES } from "../utils/schedule";
+import {
+  getPolicyDateKey,
+  getPolicyWeekKey,
+  getPolicyWeekRange,
+  getPolicyWeekRangeFromKey,
+  parseCivilDateKey,
+} from "../config/timePolicy";
 
 const timeToMinutes = (timeStr) => {
   if (!timeStr) return 0;
@@ -19,22 +26,26 @@ const dayNamesFa = ["یکشنبه", "دوشنبه", "سه‌شنبه", "چهار
 const weekDaysShort = ["ش", "ی", "د", "س", "چ", "پ", "ج"];
 const satToSunMap = [6, 0, 1, 2, 3, 4, 5];
 
+function addCivilDays(dateKey, days) {
+  const { year, month, day } = parseCivilDateKey(dateKey);
+  const shifted = new Date(Date.UTC(year, month - 1, day));
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return shifted.toISOString().slice(0, 10);
+}
+
 function getWeekDates(referenceDate = new Date(), offset = 0) {
-  const d = new Date(referenceDate);
-  d.setDate(d.getDate() + offset * 7);
-  const day = d.getDay();
-  const diff = d.getDate() - (day === 6 ? 0 : day + 1);
-  const saturday = new Date(d.setDate(diff));
-  const dates = [];
-  for (let i = 0; i < 7; i++) {
-    const date = new Date(saturday);
-    date.setDate(saturday.getDate() + i);
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, "0");
-    const dayNum = String(date.getDate()).padStart(2, "0");
-    dates.push(`${y}-${m}-${dayNum}`);
-  }
-  return dates;
+  const referenceDateKey = getPolicyDateKey(referenceDate);
+  const currentWeekRange = getPolicyWeekRange(referenceDateKey);
+  const targetDateKey = addCivilDays(
+    currentWeekRange.startDateKey,
+    offset * 7
+  );
+  const targetWeekKey = getPolicyWeekKey(targetDateKey);
+  const targetWeekRange = getPolicyWeekRangeFromKey(targetWeekKey);
+
+  return Array.from({ length: 7 }, (_, index) =>
+    addCivilDays(targetWeekRange.startDateKey, index)
+  );
 }
 
 export default function SchedulePage() {
