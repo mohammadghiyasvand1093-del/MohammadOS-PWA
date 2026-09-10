@@ -8,6 +8,48 @@ export const navItems = [
   { path: "/reports", label: "گزارش‌ها", iconId: "nav-reports", key: "7", ariaLabel: "گزارش‌ساز هوشمند" },
 ];
 
+const syncNavItem = {
+  path: "/sync",
+  label: "همگام‌سازی",
+  iconId: "nav-status",
+  ariaLabel: "صفحهٔ همگام‌سازی",
+};
+
+const adminNavItem = {
+  path: "/admin",
+  label: "مدیریت",
+  iconId: "nav-status",
+  ownerOnly: true,
+  ariaLabel: "پنل مدیریت حساب‌ها",
+};
+
+export const navigationGroups = [
+  {
+    id: "today",
+    label: "TODAY",
+    labelFa: "امروز",
+    items: [navItems[0]],
+  },
+  {
+    id: "week",
+    label: "WEEK",
+    labelFa: "هفته",
+    items: [navItems[1], navItems[2], navItems[5], navItems[3]],
+  },
+  {
+    id: "review",
+    label: "REVIEW",
+    labelFa: "مرور",
+    items: [navItems[6], navItems[4]],
+  },
+  {
+    id: "system",
+    label: "SYSTEM",
+    labelFa: "سیستم",
+    items: [syncNavItem, adminNavItem],
+  },
+];
+
 export const pagePrefetchers = {
   "/": () => import("../pages/TodayPage"),
   "/week": () => import("../pages/SchedulePage"),
@@ -16,4 +58,6 @@ export const pagePrefetchers = {
   "/add": () => import("../pages/AddPage"),
   "/status": () => import("../pages/StatusPage"),
   "/roadmap": () => import("../pages/RoadmapPage"),
+  "/sync": () => import("../pages/SyncPage"),
+  "/admin": () => import("../pages/AdminPage"),
 };

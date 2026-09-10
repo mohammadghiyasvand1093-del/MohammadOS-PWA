@@ -5,7 +5,7 @@ import SidebarWidgets from "./components/SidebarWidgets";
 import { exportToJSON, isBackupStale } from "./app/exportData";
 import { AggregationService } from "./service/aggregationService";
 
-import { navItems, pagePrefetchers } from "./constants/navigation";
+import { navigationGroups, pagePrefetchers } from "./constants/navigation";
 import { useOnboarding } from "./hooks/useOnboarding";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
@@ -164,11 +164,26 @@ function AuthenticatedAppLayout() {
   const [autoSyncState, setAutoSyncState] = useState("idle");
   const [recordAutoSyncState, setRecordAutoSyncState] = useState("idle");
   const [recordAutoSyncCount, setRecordAutoSyncCount] = useState(0);
+  const [mobileNavGroup, setMobileNavGroup] = useState(null);
   const syncInFlightRef = useRef(false);
   const syncRetryTimeoutRef = useRef(null);
   
   const mainRef = useRef(null);
   const notifRef = useRef(null);
+
+  const visibleNavigationGroups = useMemo(
+    () => navigationGroups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => !item.ownerOnly || role === "owner"),
+      }))
+      .filter((group) => group.items.length > 0),
+    [role]
+  );
+
+  useEffect(() => {
+    setMobileNavGroup(null);
+  }, [location.pathname]);
 
   useRegisterSW({
     immediate: true,
@@ -683,29 +698,42 @@ function AuthenticatedAppLayout() {
           <h1 className="text-xl font-black text-os-text tracking-wide">MohammadOS</h1>
           <p className="text-[9px] font-mono text-os-accent mt-1 tracking-[0.25em] uppercase">System Kernel v1.1</p>
         </div>
-        <nav className={`flex flex-col gap-2 flex-1 ${collapsed ? "items-center" : ""}`} role="navigation" aria-label="ناوبری اصلی">
-          {[...navItems, ...(role === "owner" ? [{ path: "/admin", label: "مدیریت", iconId: "nav-status", key: "8", ariaLabel: "پنل مدیریت حساب‌ها" }] : [])].map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              end={item.path === "/"}
-              onMouseEnter={() => handlePrefetch(item.path)}
-              className={({ isActive }) =>
-                `flex items-center rounded-lg text-sm transition-all duration-300 border-r-2 ${
-                  collapsed ? "justify-center px-2 py-3 w-10" : "justify-between px-4 py-3"
-                } ${
-                  isActive ? "bg-os-border/40 text-os-accent border-os-accent shadow-[0_0_20px_rgba(245,166,35,0.12)]" : "text-os-text/60 border-transparent hover:bg-os-border/20 hover:text-os-text"
-                }`
-              }
-              title={collapsed ? item.label : undefined}
-              aria-label={item.ariaLabel}
-            >
-              <div className={`flex items-center ${collapsed ? "gap-0" : "gap-3"}`}>
-                <span className="flex items-center" aria-hidden="true"><svg className="w-5 h-5"><use href={`/icons.svg#${item.iconId}`} /></svg></span>
-                <span className={`font-bold transition-all duration-300 ${collapsed ? "w-0 opacity-0 overflow-hidden" : "w-auto opacity-100"}`}>{item.label}</span>
+        <nav className={`flex flex-col gap-4 flex-1 ${collapsed ? "items-center" : ""}`} role="navigation" aria-label="ناوبری اصلی">
+          {visibleNavigationGroups.map((group) => (
+            <section key={group.id} className={`w-full ${collapsed ? "flex flex-col items-center" : ""}`} aria-labelledby={`desktop-nav-group-${group.id}`}>
+              <div
+                id={`desktop-nav-group-${group.id}`}
+                className={`mb-1 flex items-center justify-between px-2 text-[9px] font-mono tracking-[0.18em] text-os-text/35 ${collapsed ? "sr-only" : ""}`}
+              >
+                <span>{group.label}</span>
+                <span className="tracking-normal">{group.labelFa}</span>
               </div>
-              <span className={`text-[9px] font-mono opacity-30 hidden lg:inline transition-opacity duration-300 ${collapsed ? "hidden" : ""}`} aria-hidden="true">Alt+{item.key}</span>
-            </NavLink>
+              <div className="flex flex-col gap-1">
+                {group.items.map((item) => (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    end={item.path === "/"}
+                    onMouseEnter={() => handlePrefetch(item.path)}
+                    className={({ isActive }) =>
+                      `flex items-center rounded-lg text-sm transition-all duration-300 border-r-2 ${
+                        collapsed ? "justify-center px-2 py-3 w-10" : "justify-between px-4 py-3"
+                      } ${
+                        isActive ? "bg-os-border/40 text-os-accent border-os-accent shadow-[0_0_20px_rgba(245,166,35,0.12)]" : "text-os-text/60 border-transparent hover:bg-os-border/20 hover:text-os-text"
+                      }`
+                    }
+                    title={collapsed ? item.label : undefined}
+                    aria-label={item.ariaLabel}
+                  >
+                    <div className={`flex items-center ${collapsed ? "gap-0" : "gap-3"}`}>
+                      <span className="flex items-center" aria-hidden="true"><svg className="w-5 h-5"><use href={`/icons.svg#${item.iconId}`} /></svg></span>
+                      <span className={`font-bold transition-all duration-300 ${collapsed ? "w-0 opacity-0 overflow-hidden" : "w-auto opacity-100"}`}>{item.label}</span>
+                    </div>
+                    {item.key && <span className={`text-[9px] font-mono opacity-30 hidden lg:inline transition-opacity duration-300 ${collapsed ? "hidden" : ""}`} aria-hidden="true">Alt+{item.key}</span>}
+                  </NavLink>
+                ))}
+              </div>
+            </section>
           ))}
         </nav>
         <div className={`transition-all duration-300 ${collapsed ? "opacity-0 hidden" : "opacity-100"}`}><SidebarWidgets /></div>
@@ -953,26 +981,70 @@ function AuthenticatedAppLayout() {
           </div>
         </main>
 
-        <nav className="md:hidden fixed bottom-4 left-4 right-4 bg-os-card/80 backdrop-blur-xl border border-os-border rounded-2xl flex justify-around items-center h-16 z-40 shadow-xl shadow-black/50" role="navigation" aria-label="ناوبری موبایل">
-          <div className="flex w-full h-full px-2">
-            {navItems.map((item) => (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                end={item.path === "/"}
-                aria-current={location.pathname === item.path ? "page" : undefined}
-                className={({ isActive }) =>
-                  `flex flex-col items-center justify-center gap-1 flex-1 text-[10px] font-bold transition-all duration-200 rounded-xl my-1 relative ${
-                    isActive ? "text-os-accent bg-os-border/40 shadow-[inset_0_1px_8px_rgba(245,166,35,0.05)]" : "text-os-text/50 active:scale-95"
-                  }`
-                }
-                aria-label={item.ariaLabel}
-              >
-                <span className="flex items-center" aria-hidden="true"><svg className="w-5 h-5"><use href={`/icons.svg#${item.iconId}`} /></svg></span>
-                <span className="font-sans text-[9px]">{item.label}</span>
-                {location.pathname === item.path && <span className="absolute bottom-1 w-1 h-1 rounded-full bg-os-accent shadow-[0_0_6px_var(--color-os-accent)]" aria-hidden="true"></span>}
-              </NavLink>
-            ))}
+        {mobileNavGroup && (
+          <div className="md:hidden fixed bottom-24 left-4 right-4 z-40 rounded-2xl border border-os-border bg-os-card/95 p-3 shadow-xl shadow-black/50 backdrop-blur-xl" role="menu" aria-label="زیرمنوی ناوبری">
+            <div className="mb-2 flex items-center justify-between border-b border-os-border/60 px-2 pb-2">
+              <span className="text-[10px] font-mono tracking-[0.18em] text-os-text/40">{mobileNavGroup.label}</span>
+              <span className="text-xs font-bold text-os-text/70">{mobileNavGroup.labelFa}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {mobileNavGroup.items.map((item) => (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  end={item.path === "/"}
+                  onMouseEnter={() => handlePrefetch(item.path)}
+                  onClick={() => setMobileNavGroup(null)}
+                  className={({ isActive }) => `flex items-center gap-2 rounded-xl border px-3 py-3 text-xs font-bold transition ${isActive ? "border-os-accent bg-os-border/40 text-os-accent" : "border-os-border text-os-text/65 hover:border-os-accent/60 hover:text-os-text"}`}
+                  role="menuitem"
+                  aria-label={item.ariaLabel}
+                >
+                  <span className="flex items-center" aria-hidden="true"><svg className="h-5 w-5"><use href={`/icons.svg#${item.iconId}`} /></svg></span>
+                  <span>{item.label}</span>
+                </NavLink>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <nav className="md:hidden fixed bottom-4 left-4 right-4 z-40 flex h-16 items-center justify-around rounded-2xl border border-os-border bg-os-card/80 shadow-xl shadow-black/50 backdrop-blur-xl" role="navigation" aria-label="ناوبری موبایل">
+          <div className="flex h-full w-full px-2">
+            {visibleNavigationGroups.map((group) => {
+              const isGroupActive = group.items.some((item) => item.path === location.pathname);
+              if (group.id === "today") {
+                const item = group.items[0];
+                return (
+                  <NavLink
+                    key={group.id}
+                    to={item.path}
+                    end
+                    onMouseEnter={() => handlePrefetch(item.path)}
+                    aria-current={isGroupActive ? "page" : undefined}
+                    className={({ isActive }) => `relative flex flex-1 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-bold transition-all duration-200 ${isActive ? "bg-os-border/40 text-os-accent" : "text-os-text/50 active:scale-95"}`}
+                    aria-label={item.ariaLabel}
+                  >
+                    <span className="flex items-center" aria-hidden="true"><svg className="h-5 w-5"><use href={`/icons.svg#${item.iconId}`} /></svg></span>
+                    <span className="font-sans text-[9px]">{group.labelFa}</span>
+                    {isGroupActive && <span className="absolute bottom-1 h-1 w-1 rounded-full bg-os-accent shadow-[0_0_6px_var(--color-os-accent)]" aria-hidden="true" />}
+                  </NavLink>
+                );
+              }
+
+              return (
+                <button
+                  key={group.id}
+                  type="button"
+                  onClick={() => setMobileNavGroup((current) => current?.id === group.id ? null : group)}
+                  className={`relative flex flex-1 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-bold transition-all duration-200 ${isGroupActive || mobileNavGroup?.id === group.id ? "bg-os-border/40 text-os-accent" : "text-os-text/50 active:scale-95"}`}
+                  aria-label={`${group.labelFa} — ${group.label}`}
+                  aria-expanded={mobileNavGroup?.id === group.id}
+                >
+                  <span className="flex items-center" aria-hidden="true"><svg className="h-5 w-5"><use href={`/icons.svg#${group.items[0].iconId}`} /></svg></span>
+                  <span className="font-sans text-[9px]">{group.labelFa}</span>
+                  {isGroupActive && <span className="absolute bottom-1 h-1 w-1 rounded-full bg-os-accent shadow-[0_0_6px_var(--color-os-accent)]" aria-hidden="true" />}
+                </button>
+              );
+            })}
           </div>
         </nav>
       </div>
