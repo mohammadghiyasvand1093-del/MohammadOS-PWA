@@ -8,6 +8,7 @@ import { toPersianDate, nowMs, getLocalDateKey } from "../utils/date";
 import { importDatedSchedule, importWeeklySchedule } from "../app/ImportService";
 import {
   getPolicyDateKey,
+  getPolicyTodayKey,
   getPolicyWeekKey,
   getPolicyWeekRange,
   getPolicyWeekRangeFromKey,
@@ -71,10 +72,7 @@ export default function PlannerPage() {
     const reference = new Date(clockMs);
     return getPersianWeekDates(reference, weekOffset);
   }, [clockMs, weekOffset]);
-  const todayDateKey = (() => {
-    const d = new Date(clockMs);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  })();
+  const todayDateKey = getPolicyTodayKey(new Date(clockMs));
 
   useEffect(() => {
     const timer = setInterval(() => setClockMs(nowMs()), 30000);

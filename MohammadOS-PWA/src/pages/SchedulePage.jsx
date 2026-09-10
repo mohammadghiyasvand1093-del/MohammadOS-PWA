@@ -8,6 +8,7 @@ import { nowMs } from "../utils/date";
 import { SCHEDULE_MODES } from "../utils/schedule";
 import {
   getPolicyDateKey,
+  getPolicyTodayKey,
   getPolicyWeekKey,
   getPolicyWeekRange,
   getPolicyWeekRangeFromKey,
@@ -33,6 +34,12 @@ function addCivilDays(dateKey, days) {
   return shifted.toISOString().slice(0, 10);
 }
 
+function getPolicyDayIndex(dateKey) {
+  const { year, month, day } = parseCivilDateKey(dateKey);
+  const utcDay = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  return utcDay === 6 ? 0 : utcDay + 1;
+}
+
 function getWeekDates(referenceDate = new Date(), offset = 0) {
   const referenceDateKey = getPolicyDateKey(referenceDate);
   const currentWeekRange = getPolicyWeekRange(referenceDateKey);
@@ -56,14 +63,12 @@ export default function SchedulePage() {
   const [icsMode, setIcsMode] = useState(SCHEDULE_MODES.WEEKLY);
 
   const todayDateKey = useMemo(() => {
-    const d = new Date(currentTime);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return getPolicyTodayKey(currentTime);
   }, [currentTime]);
 
   const todayIdxSatStart = useMemo(() => {
-    const d = new Date(currentTime).getDay();
-    return d === 6 ? 0 : d + 1;
-  }, [currentTime]);
+    return getPolicyDayIndex(todayDateKey);
+  }, [todayDateKey]);
 
   const [schedule, setSchedule] = useState([]);
   const [scheduleSource, setScheduleSource] = useState("none");
@@ -82,12 +87,11 @@ export default function SchedulePage() {
     const timer = setInterval(() => {
       const nextTime = new Date(nowMs());
       setCurrentTime((previousTime) => {
-        const previousDateKey = `${previousTime.getFullYear()}-${String(previousTime.getMonth() + 1).padStart(2, "0")}-${String(previousTime.getDate()).padStart(2, "0")}`;
-        const nextDateKey = `${nextTime.getFullYear()}-${String(nextTime.getMonth() + 1).padStart(2, "0")}-${String(nextTime.getDate()).padStart(2, "0")}`;
+        const previousDateKey = getPolicyTodayKey(previousTime);
+        const nextDateKey = getPolicyTodayKey(nextTime);
 
         if (weekOffset === 0 && previousDateKey !== nextDateKey) {
-          const nextDay = nextTime.getDay();
-          setSelectedIndex(nextDay === 6 ? 0 : nextDay + 1);
+          setSelectedIndex(getPolicyDayIndex(nextDateKey));
         }
 
         return nextTime;
@@ -122,18 +126,13 @@ export default function SchedulePage() {
   useEffect(() => {
     async function loadWeekStatus() {
       try {
-        const today = new Date(todayDateKey + "T00:00:00");
-        today.setHours(0, 0, 0, 0);
-
         const statusList = await Promise.all(
           weekDates.map(async (dateKey, idx) => {
             try {
-              const checkDate = new Date(dateKey + "T00:00:00");
-              checkDate.setHours(0, 0, 0, 0);
               const dayEn = dayNamesEn[satToSunMap[idx]];
               
               if (dayEn === "friday") return { dateKey, status: "rest", done: 0, total: 0, fullDay: false };
-              if (checkDate > today) return { dateKey, status: "future", done: 0, total: 0, fullDay: false };
+              if (dateKey > todayDateKey) return { dateKey, status: "future", done: 0, total: 0, fullDay: false };
 
               const log = await DayLogRepository.getOrCreateByDate(dateKey, dayEn);
               if (!log) return { dateKey, status: "none", done: 0, total: 0, fullDay: false };
@@ -145,7 +144,7 @@ export default function SchedulePage() {
               if (log.status === "frozen") status = "frozen";
               else if (log.fullDay) status = "full";
               else if (done > 0) status = "partial";
-              else if (checkDate.getTime() === today.getTime()) status = "active";
+              else if (dateKey === todayDateKey) status = "active";
 
               return { dateKey, status, done: done || 0, total: total || 0, fullDay: log.fullDay };
             } catch {
