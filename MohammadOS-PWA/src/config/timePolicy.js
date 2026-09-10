@@ -5,6 +5,7 @@ export const WEEK_START_DAY = "Saturday";
 export const WEEK_END_DAY = "Friday";
 
 const CIVIL_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+const POLICY_WEEK_KEY_PATTERN = /^(\d{4})-W(\d{2})$/;
 const UTC_INSTANT_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,3})?Z$/;
 
@@ -96,6 +97,56 @@ function getFirstSaturdayOfYear(year) {
   return januaryFirst;
 }
 
+function getWeekNumberFromSaturday(firstSaturday, saturday) {
+  let weekNumber = 1;
+  const cursor = new Date(firstSaturday);
+
+  while (cursor < saturday) {
+    cursor.setUTCDate(cursor.getUTCDate() + 7);
+    weekNumber += 1;
+  }
+
+  return weekNumber;
+}
+
+function getPolicyWeekStartDateFromKey(periodKey) {
+  const match = String(periodKey || "").match(POLICY_WEEK_KEY_PATTERN);
+
+  if (!match) {
+    throw new TypeError("Week key must use the YYYY-Wnn format.");
+  }
+
+  const [, yearString, weekString] = match;
+  const year = Number(yearString);
+  const week = Number(weekString);
+
+  if (week < 1 || week > 53) {
+    throw new RangeError("Week number must be between 01 and 53.");
+  }
+
+  const saturday = getFirstSaturdayOfYear(year);
+  saturday.setUTCDate(saturday.getUTCDate() + (week - 1) * 7);
+  return saturday;
+}
+
+function formatPolicyWeekRange(saturday) {
+  const friday = new Date(saturday);
+  friday.setUTCDate(friday.getUTCDate() + 6);
+
+  return {
+    startDateKey: formatCivilDateParts(
+      saturday.getUTCFullYear(),
+      saturday.getUTCMonth() + 1,
+      saturday.getUTCDate()
+    ),
+    endDateKey: formatCivilDateParts(
+      friday.getUTCFullYear(),
+      friday.getUTCMonth() + 1,
+      friday.getUTCDate()
+    ),
+  };
+}
+
 function getPolicyWeekStartDate(civilDateKey) {
   const civilDate = parseCivilDateKey(civilDateKey);
   const saturday = civilDateToUtcDate(civilDate);
@@ -155,23 +206,14 @@ export function parseCivilDateKey(dateKey) {
  * Returns the Saturday-to-Friday policy week containing a Civil Date.
  */
 export function getPolicyWeekRange(civilDateKey) {
-  const saturday = getPolicyWeekStartDate(civilDateKey);
+  return formatPolicyWeekRange(getPolicyWeekStartDate(civilDateKey));
+}
 
-  const friday = new Date(saturday);
-  friday.setUTCDate(friday.getUTCDate() + 6);
-
-  return {
-    startDateKey: formatCivilDateParts(
-      saturday.getUTCFullYear(),
-      saturday.getUTCMonth() + 1,
-      saturday.getUTCDate()
-    ),
-    endDateKey: formatCivilDateParts(
-      friday.getUTCFullYear(),
-      friday.getUTCMonth() + 1,
-      friday.getUTCDate()
-    ),
-  };
+/**
+ * Returns the Saturday-to-Friday range identified by an existing YYYY-Wnn key.
+ */
+export function getPolicyWeekRangeFromKey(periodKey) {
+  return formatPolicyWeekRange(getPolicyWeekStartDateFromKey(periodKey));
 }
 
 /**
@@ -184,18 +226,13 @@ export function getPolicyWeekKey(civilDateKey) {
 
   if (saturday < firstSaturday) {
     const previousFirstSaturday = getFirstSaturdayOfYear(year - 1);
-    const previousWeekNumber =
-      Math.floor(
-        (saturday.getTime() - previousFirstSaturday.getTime()) /
-          (7 * 24 * 60 * 60 * 1000)
-      ) + 1;
+    const previousWeekNumber = getWeekNumberFromSaturday(
+      previousFirstSaturday,
+      saturday
+    );
     return `${year - 1}-W${String(previousWeekNumber).padStart(2, "0")}`;
   }
 
-  const weekNumber =
-    Math.floor(
-      (saturday.getTime() - firstSaturday.getTime()) /
-        (7 * 24 * 60 * 60 * 1000)
-    ) + 1;
+  const weekNumber = getWeekNumberFromSaturday(firstSaturday, saturday);
   return `${year}-W${String(weekNumber).padStart(2, "0")}`;
 }
