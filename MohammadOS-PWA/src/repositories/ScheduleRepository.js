@@ -7,7 +7,14 @@ import {
   getDateRangeInclusive,
   isDateKey,
 } from "../utils/schedule";
-import { getDayEnFromDateKey, getLocalDateKey } from "../utils/date";
+import { getDayEnFromDateKey } from "../utils/date";
+import {
+  getPolicyDateKey,
+  getPolicyWeekKey,
+  getPolicyWeekRange,
+  getPolicyWeekRangeFromKey,
+  parseCivilDateKey,
+} from "../config/timePolicy";
 import { enqueueMutation, enqueueMutations } from "../sync/SyncOutbox";
 
 function validateBlocks(scheduleData) {
@@ -32,6 +39,13 @@ function sortBlocks(blocks) {
     const [bh, bm] = (b.startTime || "99:99").split(":").map(Number);
     return (ah * 60 + am) - (bh * 60 + bm);
   });
+}
+
+function addCivilDays(dateKey, days) {
+  const { year, month, day } = parseCivilDateKey(dateKey);
+  const shifted = new Date(Date.UTC(year, month - 1, day));
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return shifted.toISOString().slice(0, 10);
 }
 
 export const ScheduleRepository = {
@@ -235,14 +249,17 @@ export const ScheduleRepository = {
   },
 
   async getWeekSchedule(weekOffset = 0) {
-    const today = new Date();
-    const saturday = new Date(today);
-    const jsDay = saturday.getDay();
-    saturday.setDate(saturday.getDate() - (jsDay === 6 ? 0 : jsDay + 1) + weekOffset * 7);
+    const todayDateKey = getPolicyDateKey(new Date());
+    const currentWeekRange = getPolicyWeekRange(todayDateKey);
+    const targetDateKey = addCivilDays(
+      currentWeekRange.startDateKey,
+      weekOffset * 7
+    );
+    const targetWeekKey = getPolicyWeekKey(targetDateKey);
+    const targetWeekRange = getPolicyWeekRangeFromKey(targetWeekKey);
+
     return Promise.all(Array.from({ length: 7 }, (_, index) => {
-      const date = new Date(saturday);
-      date.setDate(saturday.getDate() + index);
-      const dateKey = getLocalDateKey(date);
+      const dateKey = addCivilDays(targetWeekRange.startDateKey, index);
       return this.getScheduleForDate(dateKey, getDayEnFromDateKey(dateKey));
     }));
   },
