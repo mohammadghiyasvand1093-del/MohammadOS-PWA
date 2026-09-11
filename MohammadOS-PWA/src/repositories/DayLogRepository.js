@@ -3,7 +3,6 @@
 import { db } from "../db/database";
 import { ScheduleRepository } from "./ScheduleRepository";
 import {
-  getDayOfWeekFromDateKey,
   normalizeToDateKey,
   getHierarchyFields
 } from "../utils/date";
@@ -84,6 +83,19 @@ export function buildEntriesFromSchedule(scheduleBlocks = []) {
   }));
 }
 
+// D1.10-C: weekday of a Civil Date on the UTC calendar, returned in the
+// Persian index (0=Saturday … 6=Friday) and independent of the device
+// timezone. Non-canonical input yields NaN, matching the legacy helper's
+// tolerant behavior without consulting the device clock.
+function civilDateDayOfWeek(dateKey) {
+  if (typeof dateKey !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+    return NaN;
+  }
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const jsDay = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  return (jsDay + 1) % 7;
+}
+
 function isHabitActiveOnDate(habit, dateStr) {
   if (!habit || !habit.recurrence) return false;
 
@@ -94,7 +106,7 @@ function isHabitActiveOnDate(habit, dateStr) {
     return false;
   }
 
-  const dayOfWeek = getDayOfWeekFromDateKey(targetDate);
+  const dayOfWeek = civilDateDayOfWeek(targetDate);
 
   if (habit.recurrence.type === "daily") {
     return dayOfWeek !== 6; // ✅ FIX Bug #4 regression: Friday = 6 in Persian index

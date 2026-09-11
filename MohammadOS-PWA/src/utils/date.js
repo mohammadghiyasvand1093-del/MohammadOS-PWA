@@ -81,20 +81,40 @@ export function getWeekOfMonth(date) {
  * If you need a week identifier, call getPersianWeekKey().
  */
 export function getHierarchyFields(dateStr) {
-  const d = parseDateKeyLocal(dateStr);
+  const normalized = normalizeToDateKey(dateStr);
+  try {
+    // D1.10-D: year/month come from the Civil Date itself (Time Policy
+    // validator + explicit components), never from a device-local Date.
+    const { year, month } = parseCivilDateKey(normalized);
+    return { year, month };
+  } catch {
+    // Invalid input is outside the contract; deterministic NaN replaces the
+    // legacy device-clock fallback.
+    return { year: NaN, month: NaN };
+  }
+}
 
-  return {
-    year: d.getFullYear(),
-    month: d.getMonth() + 1,
-  };
+// D1.10-D: deterministic weekday primitive for canonical Civil Dates.
+// Reuses the Time Policy validator and the UTC calendar so the result never
+// depends on the device timezone. Invalid input is outside the contract and
+// yields NaN.
+function civilDateToJsWeekday(dateKey) {
+  if (typeof dateKey !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+    return NaN;
+  }
+  try {
+    const { year, month, day } = parseCivilDateKey(dateKey);
+    return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  } catch {
+    return NaN;
+  }
 }
 
 export function getDayOfWeekFromDateKey(dateKey) {
-  const d = parseDateKeyLocal(dateKey);
-  if (!d) return null;
+  const jsDay = civilDateToJsWeekday(dateKey);
+  if (Number.isNaN(jsDay)) return null;
   // ✅ FIX Bug #4: Return Persian-calendar day index (Saturday=0 … Friday=6)
   // so it matches the daysOfWeek UI in TodayPage (id 0=شنبه, id 6=جمعه).
-  const jsDay = d.getDay(); // 0=Sun, 6=Sat
   return (jsDay + 1) % 7;   // 0=Sat, 1=Sun, … 6=Fri
 }
 
@@ -205,8 +225,9 @@ export function nowMs() {
 }
 
 export function getDayEnFromDateKey(dateKey) {
-  const d = parseDateKeyLocal(dateKey);
-  return ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"][d.getDay()];
+  const jsDay = civilDateToJsWeekday(dateKey);
+  if (Number.isNaN(jsDay)) return null;
+  return ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"][jsDay];
 }
 
 export function toPersianDate(dateKey) {

@@ -7,12 +7,15 @@ import { db } from "../db/database";
 import { DayLogRepository, buildEntriesFromSchedule } from "../repositories/DayLogRepository";
 import { ScheduleRepository } from "../repositories/ScheduleRepository";
 import { TimerRepository } from "../repositories/TimerRepository";
-import { 
-  getLocalDateKey, 
-  nowMs, 
-  toPersianDateShort, 
-  toPersianWeekRangeLabel 
+import {
+  nowMs,
+  toPersianDateShort,
+  toPersianWeekRangeLabel
 } from "../utils/date";
+import {
+  getPolicyDateKey,
+  getPolicyTodayKey
+} from "../config/timePolicy";
 
 const DOMAINS = [
   { key: "learning", label: "یادگیری" },
@@ -29,9 +32,36 @@ const GRACE_MONTHLY_LIMIT = 2;
  * Internal Helpers
  * ============================================================ */
 
+// D1.9: civil-date identity comes from the Account Timezone (Time Policy),
+// never from the device timezone. Calendar arithmetic below runs on UTC
+// midnight of the policy Civil Date so results are device-TZ invariant.
+
+function getPolicyTodayParts() {
+  const todayKey = getPolicyTodayKey();
+  const [year, month] = todayKey.split("-").map(Number);
+  return { todayKey, year, month };
+}
+
+function civilDateAddDays(dateKey, days) {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  const utcDate = new Date(Date.UTC(y, m - 1, d));
+  utcDate.setUTCDate(utcDate.getUTCDate() + days);
+  return utcDate.toISOString().slice(0, 10);
+}
+
+function civilDateWeekday(dateKey) {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
+// D1.10-B: weekday comes from the Civil Date itself (UTC calendar), never
+// from a device-local Date parse. The guard preserves the legacy contract of
+// returning false (never throwing) for missing or non-canonical inputs.
 function isFriday(dateStr) {
-  const d = new Date(dateStr + "T00:00:00");
-  return d.getDay() === 5;
+  if (typeof dateStr !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return false;
+  }
+  return civilDateWeekday(dateStr) === 5;
 }
 
 function computeStreak(allLogs, todayKey) {
@@ -39,33 +69,36 @@ function computeStreak(allLogs, todayKey) {
   const todayLog = logMap.get(todayKey);
 
   let streak = 0;
-  let cursor = new Date(nowMs());
+  // D1.9: cursor is UTC midnight of the policy Civil Date instead of the
+  // device-local "now"; traversal logic is unchanged.
+  const [cy, cm, cd] = todayKey.split("-").map(Number);
+  let cursor = new Date(Date.UTC(cy, cm - 1, cd));
 
   if (todayLog && todayLog.fullDay) {
     // include today
   } else if (!todayLog || todayLog.status === "frozen") {
-    cursor.setDate(cursor.getDate() - 1);
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
   } else {
-    cursor.setDate(cursor.getDate() - 1);
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
   }
 
   while (true) {
-    const dk = getLocalDateKey(cursor);
+    const dk = cursor.toISOString().slice(0, 10);
 
-    if (cursor.getDay() === 5) {
-      cursor.setDate(cursor.getDate() - 1);
+    if (cursor.getUTCDay() === 5) {
+      cursor.setUTCDate(cursor.getUTCDate() - 1);
       continue;
     }
 
     const log = logMap.get(dk);
     if (!log) break;
     if (log.status === "frozen") {
-      cursor.setDate(cursor.getDate() - 1);
+      cursor.setUTCDate(cursor.getUTCDate() - 1);
       continue;
     }
     if (log.fullDay) {
       streak++;
-      cursor.setDate(cursor.getDate() - 1);
+      cursor.setUTCDate(cursor.getUTCDate() - 1);
     } else {
       break;
     }
@@ -105,21 +138,15 @@ function computeConsistency(allLogs, todayKey) {
 }
 
 function getWeekRange(referenceDate = new Date(nowMs())) {
-  const day = referenceDate.getDay();
-  const daysSinceSat = (day + 1) % 7;
+  // D1.9: the reference Instant is projected onto the Account Timezone civil
+  // date first; Saturday..Friday boundaries are then pure Civil Date math.
+  const referenceKey = getPolicyDateKey(referenceDate);
+  const daysSinceSat = (civilDateWeekday(referenceKey) + 1) % 7;
 
-  const startOfWeek = new Date(referenceDate);
-  startOfWeek.setDate(referenceDate.getDate() - daysSinceSat);
-  startOfWeek.setHours(0, 0, 0, 0);
+  const startDateStr = civilDateAddDays(referenceKey, -daysSinceSat);
+  const endDateStr = civilDateAddDays(startDateStr, 6);
 
-  const endOfWeek = new Date(startOfWeek);
-  endOfWeek.setDate(startOfWeek.getDate() + 6);
-  endOfWeek.setHours(23, 59, 59, 999);
-
-  return {
-    startDateStr: getLocalDateKey(startOfWeek),
-    endDateStr: getLocalDateKey(endOfWeek),
-  };
+  return { startDateStr, endDateStr };
 }
 
 /* ============================================================
@@ -128,10 +155,7 @@ function getWeekRange(referenceDate = new Date(nowMs())) {
 
 export const AggregationService = {
   async getTodayStats() {
-    const today = new Date(nowMs());
-    const todayKey = getLocalDateKey(today);
-    const year = today.getFullYear();
-    const month = today.getMonth() + 1;
+    const { todayKey, year, month } = getPolicyTodayParts();
 
     const [dayLog, monthLogs, allLogs, timer] = await Promise.all([
       DayLogRepository.getByDate(todayKey),
@@ -163,10 +187,7 @@ export const AggregationService = {
   },
 
   async getVitals() {
-    const now = new Date(nowMs());
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
-    const todayKey = getLocalDateKey(now);
+    const { todayKey, year, month } = getPolicyTodayParts();
 
     const [monthLogs, allLogs] = await Promise.all([
       DayLogRepository.getMonthLogs(year, month),
@@ -188,7 +209,7 @@ export const AggregationService = {
   },
 
   async getMonthStats(year, month) {
-    const todayKey = getLocalDateKey(new Date(nowMs()));
+    const todayKey = getPolicyTodayKey();
     const logs = await DayLogRepository.getMonthLogs(year, month);
     const visibleLogs = logs.filter((log) => log.date <= todayKey);
     const activeLogs = visibleLogs.filter((log) => log.status !== "frozen");
@@ -215,7 +236,7 @@ export const AggregationService = {
       .between(startDateStr, endDateStr, true, true)
       .toArray();
 
-    const todayKey = getLocalDateKey(new Date(nowMs()));
+    const todayKey = getPolicyTodayKey();
     const validMoodLogs = weeklyDayLogs
       .filter((l) => l.date <= todayKey && l.mood != null)
       .sort((a, b) => a.date.localeCompare(b.date));
@@ -244,13 +265,10 @@ export const AggregationService = {
   },
 
   async getHeatmapData(days = 90) {
-    const today = new Date(nowMs());
-    today.setHours(0, 0, 0, 0);
+    // D1.9: window anchored on the policy Civil Date; iteration logic unchanged.
+    const todayKey = getPolicyTodayKey();
+    const cutoffStr = civilDateAddDays(todayKey, -days);
 
-    const cutoff = new Date(today);
-    cutoff.setDate(today.getDate() - days);
-    const cutoffStr = getLocalDateKey(cutoff);
-    
     const logs = await db.dayLogs
       .where("date")
       .aboveOrEqual(cutoffStr)
@@ -260,9 +278,7 @@ export const AggregationService = {
 
     const result = [];
     for (let i = days - 1; i >= 0; i--) {
-      const currentDate = new Date(today);
-      currentDate.setDate(today.getDate() - i);
-      const dateStr = getLocalDateKey(currentDate);
+      const dateStr = civilDateAddDays(todayKey, -i);
 
       const log = logMap.get(dateStr);
       let level = 0;
@@ -332,27 +348,18 @@ export const AggregationService = {
   },
 
   async getDomainTrend(weeks = 6) {
-    const today = new Date(nowMs());
-    const todayDay = today.getDay();
-    const daysSinceSat = (todayDay + 1) % 7;
+    // D1.9: week windows anchored on the policy Civil Date.
+    const todayKey = getPolicyTodayKey();
+    const daysSinceSat = (civilDateWeekday(todayKey) + 1) % 7;
     const result = [];
 
     const weekPromises = [];
     const weekBoundaries = [];
 
     for (let w = weeks - 1; w >= 0; w--) {
-      const weekStart = new Date(today);
-      weekStart.setDate(today.getDate() - daysSinceSat - (w * 7));
-      weekStart.setHours(0, 0, 0, 0);
-
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 6);
-      weekEnd.setHours(23, 59, 59, 999);
-
-      const actualEnd = weekEnd > today ? new Date(today) : weekEnd;
-
-      const startStr = getLocalDateKey(weekStart);
-      const endStr = getLocalDateKey(actualEnd);
+      const startStr = civilDateAddDays(todayKey, -(daysSinceSat + w * 7));
+      const nominalEndStr = civilDateAddDays(startStr, 6);
+      const endStr = nominalEndStr > todayKey ? todayKey : nominalEndStr;
 
       weekBoundaries.push({ startStr, endStr });
       weekPromises.push(
@@ -367,8 +374,7 @@ export const AggregationService = {
       const { startStr, endStr } = weekBoundaries[i];
 
       const activeLogs = weekLogs.filter((l) => {
-        const d = new Date(l.date + "T00:00:00");
-        return d.getDay() !== 5 && l.status !== "frozen";
+        return civilDateWeekday(l.date) !== 5 && l.status !== "frozen";
       });
 
       const domainStats = {};
@@ -403,26 +409,17 @@ export const AggregationService = {
 
   // ✅ بچ ۷۵: Analytics Trend (Productivity & Consistency over 12 weeks)
   async getAnalyticsTrend(weeks = 12) {
-    const today = new Date(nowMs());
-    const todayDay = today.getDay();
-    const daysSinceSat = (todayDay + 1) % 7;
+    // D1.9: week windows anchored on the policy Civil Date.
+    const todayKey = getPolicyTodayKey();
+    const daysSinceSat = (civilDateWeekday(todayKey) + 1) % 7;
     const result = [];
     const weekPromises = [];
     const weekBoundaries = [];
-    const todayKey = getLocalDateKey(today);
 
     for (let w = weeks - 1; w >= 0; w--) {
-      const weekStart = new Date(today);
-      weekStart.setDate(today.getDate() - daysSinceSat - (w * 7));
-      weekStart.setHours(0, 0, 0, 0);
-
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 6);
-      weekEnd.setHours(23, 59, 59, 999);
-
-      const actualEnd = weekEnd > today ? new Date(today) : weekEnd;
-      const startStr = getLocalDateKey(weekStart);
-      const endStr = getLocalDateKey(actualEnd);
+      const startStr = civilDateAddDays(todayKey, -(daysSinceSat + w * 7));
+      const nominalEndStr = civilDateAddDays(startStr, 6);
+      const endStr = nominalEndStr > todayKey ? todayKey : nominalEndStr;
 
       weekBoundaries.push({ startStr, endStr });
       weekPromises.push(
@@ -438,8 +435,11 @@ export const AggregationService = {
 
       // فقط روزهای گذشته این هفته محاسبه شوند
       const activeLogs = weekLogs.filter((l) => {
-        const d = new Date(l.date + "T00:00:00");
-        return d.getDay() !== 5 && l.status !== "frozen" && l.date <= todayKey;
+        return (
+          civilDateWeekday(l.date) !== 5 &&
+          l.status !== "frozen" &&
+          l.date <= todayKey
+        );
       });
 
       const fullDays = activeLogs.filter((l) => l.fullDay).length;
@@ -460,16 +460,15 @@ export const AggregationService = {
 
   // ✅ بچ ۷۵: Mood Distribution (Last 90 days)
   async getMoodDistribution(days = 90) {
-    const today = new Date(nowMs());
-    const cutoff = new Date(today);
-    cutoff.setDate(today.getDate() - days);
-    const cutoffStr = getLocalDateKey(cutoff);
+    // D1.9: window anchored on the policy Civil Date.
+    const todayKey = getPolicyTodayKey();
+    const cutoffStr = civilDateAddDays(todayKey, -days);
 
     const logs = await db.dayLogs.where("date").aboveOrEqual(cutoffStr).toArray();
-    
+
     const dist = [0, 0, 0, 0, 0, 0]; // index 1 to 5 used
     logs.forEach(l => {
-      if (l.date <= getLocalDateKey(today) && l.status !== "frozen" && l.mood != null && l.mood >= 1 && l.mood <= 5) {
+      if (l.date <= todayKey && l.status !== "frozen" && l.mood != null && l.mood >= 1 && l.mood <= 5) {
         dist[l.mood]++;
       }
     });

@@ -4,11 +4,11 @@ import { HabitRepository } from "../repositories/HabitRepository";
 import { executeAction } from "../utils/actionExecutor";
 import { EVENT_TYPES } from "../domain/events/eventTypes";
 import { validateHabit } from "../domain/validation/habitValidator";
-import { todayKey } from "../utils/date";
+import { getPolicyTodayKey } from "../config/timePolicy";
 
 export async function saveHabit(habitData) {
   const now = new Date();
-  const dateKey = todayKey();
+  const dateKey = getPolicyTodayKey();
 
   // FIX: domain هیچ‌وقت null نمی‌شود — "general" fallback
   const domain =
