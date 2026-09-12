@@ -122,16 +122,29 @@ export function todayKey() {
   return getLocalDateKey(new Date());
 }
 
+// D1.10-E1: today's weekday is the Account-Timezone civil day, not the
+// device clock. Reuses the policy projection and the deterministic weekday.
 export function getTodayEn() {
-  return [
-    "sunday",
-    "monday",
-    "tuesday",
-    "wednesday",
-    "thursday",
-    "friday",
-    "saturday",
-  ][new Date().getDay()];
+  return getDayEnFromDateKey(getPolicyTodayKey());
+}
+
+// D1.10-E1: shared civil-date day arithmetic on the UTC calendar. Canonical
+// input required (see parseCivilDateKey); the result never depends on the
+// device timezone.
+export function addCivilDays(dateKey, days) {
+  const { year, month, day } = parseCivilDateKey(dateKey);
+  const shifted = new Date(Date.UTC(year, month - 1, day));
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return shifted.toISOString().slice(0, 10);
+}
+
+// D1.10-E2: report month identity = policy Civil Date's month shifted by
+// whole months. Pure month arithmetic — no device clock and no day-of-month
+// clamp (a device setMonth anchor skips a month from e.g. Jan 31).
+export function getPolicyMonthAnchor(monthOffset = 0) {
+  const [year, month] = getPolicyTodayKey().split("-").map(Number);
+  const totalMonths = year * 12 + (month - 1) + monthOffset;
+  return { year: Math.floor(totalMonths / 12), month: (totalMonths % 12) + 1 };
 }
 
 export function getISOWeekKey(date = new Date()) {

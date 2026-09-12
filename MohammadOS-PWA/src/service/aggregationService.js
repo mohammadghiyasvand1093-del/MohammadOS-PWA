@@ -14,7 +14,8 @@ import {
 } from "../utils/date";
 import {
   getPolicyDateKey,
-  getPolicyTodayKey
+  getPolicyTodayKey,
+  parseCivilDateKey
 } from "../config/timePolicy";
 
 const DOMAINS = [
@@ -140,7 +141,16 @@ function computeConsistency(allLogs, todayKey) {
 function getWeekRange(referenceDate = new Date(nowMs())) {
   // D1.9: the reference Instant is projected onto the Account Timezone civil
   // date first; Saturday..Friday boundaries are then pure Civil Date math.
-  const referenceKey = getPolicyDateKey(referenceDate);
+  // D1.10-F: a canonical Civil Date key is also accepted and travels as-is.
+  // Routing a Civil Date through a device-local Date would re-project into
+  // the Account Timezone one civil day early for devices east of Tehran.
+  let referenceKey;
+  if (typeof referenceDate === "string") {
+    parseCivilDateKey(referenceDate); // canonical YYYY-MM-DD contract
+    referenceKey = referenceDate;
+  } else {
+    referenceKey = getPolicyDateKey(referenceDate);
+  }
   const daysSinceSat = (civilDateWeekday(referenceKey) + 1) % 7;
 
   const startDateStr = civilDateAddDays(referenceKey, -daysSinceSat);

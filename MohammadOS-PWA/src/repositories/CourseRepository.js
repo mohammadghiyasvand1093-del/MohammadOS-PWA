@@ -1,7 +1,7 @@
 // src/repositories/CourseRepository.js
 
 import { db } from "../db/database";
-import { getLocalDateKey } from "../utils/date";
+import { getPolicyTodayKey } from "../config/timePolicy";
 import { enqueueMutation, enqueueMutations } from "../sync/SyncOutbox";
 
 function toSafeNumber(value, fallback = 0) {
@@ -160,7 +160,7 @@ export const CourseRepository = {
     const id = crypto.randomUUID();
     const now = new Date();
     const nowIso = now.toISOString();
-    const dateStr = getLocalDateKey(now);
+    const dateStr = getPolicyTodayKey();
 
     const totalEpisodes = Math.max(
       0,
@@ -289,7 +289,7 @@ export const CourseRepository = {
 
     const now = new Date();
     const nowIso = now.toISOString();
-    const dateStr = getLocalDateKey(now);
+    const dateStr = getPolicyTodayKey();
 
     await db.transaction("rw", [db.courses, db.courseSessions, db.syncOutbox], async () => {
       const existingCompletedSession = await db.courseSessions

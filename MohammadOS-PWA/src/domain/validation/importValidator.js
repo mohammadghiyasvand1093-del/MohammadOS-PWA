@@ -85,6 +85,25 @@ function requiredString(record, store, index, field, errors) {
   }
 }
 
+// D1.10-G: persisted temporal fields are canonical Civil Dates —
+// isDateKey enforces both the YYYY-MM-DD shape and real calendar validity
+// (2026-02-30 fails). Imported records are stored verbatim, so anything
+// this validator accepts lands in the indexed date fields as-is.
+function civilDateString(record, store, index, field, errors, { nullable = false } = {}) {
+  const value = record[field];
+  if (value === undefined || (nullable && value === null)) return;
+  if (typeof value !== "string" || !isDateKey(value)) {
+    errors.push(errorMessage({
+      store,
+      record: index,
+      field,
+      reason: "invalid civil date",
+      expected: "YYYY-MM-DD calendar date",
+      actual: typeName(value),
+    }));
+  }
+}
+
 function optionalValueType(value, store, index, field, expected, predicate, errors) {
   if (value !== undefined && !predicate(value)) {
     errors.push(errorMessage({
@@ -197,12 +216,12 @@ function validateHabitRecord(record, store, index) {
   optionalType(record, store, index, "domain", "known domain string", (value) => typeof value === "string" && VALID_DOMAINS.has(value), errors);
   optionalBoolean(record, store, index, "isCritical", errors);
   optionalBoolean(record, store, index, "done", errors);
-  optionalString(record, store, index, "date", errors);
+  civilDateString(record, store, index, "date", errors);
   optionalString(record, store, index, "createdAt", errors);
   optionalString(record, store, index, "updatedAt", errors);
   optionalNumber(record, store, index, "habitStrength", errors);
   optionalNumber(record, store, index, "strengthBeforeToday", errors);
-  optionalString(record, store, index, "lastEmaDate", errors, { nullable: true });
+  civilDateString(record, store, index, "lastEmaDate", errors, { nullable: true });
   return errors;
 }
 
@@ -309,6 +328,20 @@ function validateDayLogRecord(record, store, index) {
   }
   for (const field of ["journalNote", "slipNote", "moodNote", "status"]) optionalString(record, store, index, field, errors, { nullable: true });
   for (const field of ["mood", "fullDayScore", "year", "month", "week", "dayOfWeek"]) optionalNumber(record, store, index, field, errors, { nullable: true });
+  // D1.10-G: the year/month hierarchy feeds where({year, month}) queries
+  // (monthly logs, vitals, monthly review) and lazyMigrateDayLog only
+  // backfills MISSING hierarchy — a wrong number stays wrong forever and
+  // silently drops the day from month queries. Absent/null stays legal
+  // (lazyMigrate treats it as missing and repairs it from the Civil Date).
+  if (isDateKey(record.date)) {
+    const [dateYear, dateMonth] = record.date.split("-").map(Number);
+    if (record.year !== undefined && record.year !== null && record.year !== dateYear) {
+      errors.push(errorMessage({ store, record: index, field: "year", reason: "hierarchy does not match date", expected: String(dateYear), actual: typeName(record.year) }));
+    }
+    if (record.month !== undefined && record.month !== null && record.month !== dateMonth) {
+      errors.push(errorMessage({ store, record: index, field: "month", reason: "hierarchy does not match date", expected: String(dateMonth), actual: typeName(record.month) }));
+    }
+  }
   optionalBoolean(record, store, index, "fullDay", errors);
   optionalString(record, store, index, "createdAt", errors);
   optionalString(record, store, index, "updatedAt", errors);
@@ -336,6 +369,9 @@ function validateCourseSession(record, store, index) {
   const errors = validateSimpleIdRecord(record, store, index);
   if (!isObject(record)) return errors;
   for (const field of ["courseId", "status", "date", "createdAt"]) requiredString(record, store, index, field, errors);
+  // D1.10-G: session.date is an indexed CIVIL_DATE (CourseRepository writes
+  // getPolicyTodayKey()); a non-canonical value corrupts the date index.
+  civilDateString(record, store, index, "date", errors);
   optionalNumber(record, store, index, "episodeNumber", errors);
   optionalString(record, store, index, "note", errors);
   return errors;
@@ -360,7 +396,12 @@ function validateSchedule(record, store, index) {
   if (record.scheduleMode !== undefined && (typeof record.scheduleMode !== "string" || !VALID_SCHEDULE_MODES.has(record.scheduleMode))) {
     errors.push(errorMessage({ store, record: index, field: "scheduleMode", reason: "invalid value", expected: "known schedule mode", actual: typeName(record.scheduleMode) }));
   }
-  for (const field of ["dateKey", "planId", "startDate", "endDate"]) optionalString(record, store, index, field, errors, { nullable: true });
+  // D1.10-G: the schedule date fields are indexed and feed
+  // getDateRangeInclusive; a non-canonical value corrupts the range logic.
+  civilDateString(record, store, index, "dateKey", errors, { nullable: true });
+  civilDateString(record, store, index, "startDate", errors, { nullable: true });
+  civilDateString(record, store, index, "endDate", errors, { nullable: true });
+  optionalString(record, store, index, "planId", errors, { nullable: true });
   for (const field of ["createdAt", "updatedAt"]) optionalString(record, store, index, field, errors);
   return errors;
 }
@@ -369,7 +410,10 @@ function validateGate(record, store, index) {
   const errors = validateSimpleIdRecord(record, store, index);
   if (!isObject(record)) return errors;
   requiredString(record, store, index, "title", errors);
-  for (const field of ["description", "constraintNote", "deadline", "deadlineNote", "evidenceLink"]) optionalString(record, store, index, field, errors, { nullable: true });
+  for (const field of ["description", "constraintNote", "deadlineNote", "evidenceLink"]) optionalString(record, store, index, field, errors, { nullable: true });
+  // D1.10-G: deadline participates in civil string comparisons (overdue);
+  // garbage values flip the comparison result.
+  civilDateString(record, store, index, "deadline", errors, { nullable: true });
   for (const field of ["dependsOn", "criteria", "linkedRefIds"]) optionalArray(record, store, index, field, errors);
   if (Array.isArray(record.dependsOn)) {
     record.dependsOn.forEach((value, valueIndex) => {
@@ -407,6 +451,7 @@ function validateActiveTimer(record, store, index) {
   const errors = validateSimpleIdRecord(record, store, index);
   if (!isObject(record)) return errors;
   for (const field of ["taskRefId", "dayLogDate"]) requiredString(record, store, index, field, errors);
+  civilDateString(record, store, index, "dayLogDate", errors);
   optionalNumber(record, store, index, "startTime", errors, { nullable: true });
   optionalNumber(record, store, index, "accumulatedTime", errors);
   optionalBoolean(record, store, index, "isRunning", errors);
@@ -439,8 +484,32 @@ function validateLifeWheelScore(record, store, index) {
       }
     }
   }
-  for (const field of ["startDate", "endDate", "updatedAt"]) optionalString(record, store, index, field, errors);
-  for (const field of ["year", "month", "week"]) optionalNumber(record, store, index, field, errors, { nullable: true });
+  civilDateString(record, store, index, "startDate", errors);
+  civilDateString(record, store, index, "endDate", errors);
+  optionalString(record, store, index, "updatedAt", errors);
+  // D1.10-G: year/month are indexed hierarchy fields. The app producer
+  // always writes finite integers (never null), so imported nulls are
+  // corruption, and the values must agree with startDate when both exist.
+  for (const field of ["year", "month"]) {
+    const value = record[field];
+    if (value === undefined) continue;
+    if (typeof value !== "number" || !Number.isInteger(value)) {
+      errors.push(errorMessage({ store, record: index, field, reason: "invalid hierarchy value", expected: "integer", actual: typeName(value) }));
+    }
+  }
+  if (record.month !== undefined && Number.isInteger(record.month) && !(record.month >= 1 && record.month <= 12)) {
+    errors.push(errorMessage({ store, record: index, field: "month", reason: "month out of range", expected: "1-12", actual: typeName(record.month) }));
+  }
+  if (isDateKey(record.startDate) && Number.isInteger(record.year) && Number.isInteger(record.month)) {
+    const [startDateYear, startDateMonth] = record.startDate.split("-").map(Number);
+    if (record.year !== startDateYear) {
+      errors.push(errorMessage({ store, record: index, field: "year", reason: "hierarchy does not match startDate", expected: String(startDateYear), actual: typeName(record.year) }));
+    }
+    if (record.month !== startDateMonth) {
+      errors.push(errorMessage({ store, record: index, field: "month", reason: "hierarchy does not match startDate", expected: String(startDateMonth), actual: typeName(record.month) }));
+    }
+  }
+  optionalNumber(record, store, index, "week", errors, { nullable: true });
   return errors;
 }
 

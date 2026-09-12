@@ -6,8 +6,9 @@ import { ImportService, IMPORT_TABLES } from "../app/ImportService";
 import { AggregationService } from "../service/aggregationService";
 import { exportToJSON, exportToCSV } from "../app/exportData";
 import {
-  getPersianWeekKey, getPersianWeekRange, getLocalDateKey, getDayEnFromDateKey, nowMs, toPersianDate, toPersianNumber, toPersianWeekRangeLabel,
+  addCivilDays, getPolicyMonthAnchor, getPersianWeekKey, getPersianWeekRange, getDayEnFromDateKey, getLocalDateKey, toPersianDate, toPersianNumber, toPersianWeekRangeLabel,
 } from "../utils/date";
+import { getPolicyTodayKey } from "../config/timePolicy";
 
 import {
   WEEKLY_PLANNER_PROMPT,
@@ -79,8 +80,8 @@ export default function ReportsPage() {
   const [scheduleImportLoading, setScheduleImportLoading] = useState(false);
   const [aiGuideStep, setAiGuideStep] = useState(1);
   const [scheduleMode, setScheduleMode] = useState("weekly_template");
-  const [datedStartDate, setDatedStartDate] = useState(getLocalDateKey(new Date()));
-  const [datedEndDate, setDatedEndDate] = useState(addDaysToDateKey(getLocalDateKey(new Date()), 29));
+  const [datedStartDate, setDatedStartDate] = useState(getPolicyTodayKey());
+  const [datedEndDate, setDatedEndDate] = useState(addDaysToDateKey(getPolicyTodayKey(), 29));
 
   const lastExportRaw = localStorage.getItem("mohammados_last_export");
   const lastExportDate = lastExportRaw ? new Intl.DateTimeFormat("fa-IR", { dateStyle: "short", timeStyle: "short" }).format(new Date(lastExportRaw)) : null;
@@ -106,9 +107,8 @@ export default function ReportsPage() {
 
   useEffect(() => {
     let mounted = true;
-    const base = new Date(nowMs());
-    base.setMonth(base.getMonth() + monthOffset);
-    AggregationService.getMonthStats(base.getFullYear(), base.getMonth() + 1)
+    const monthAnchor = getPolicyMonthAnchor(monthOffset);
+    AggregationService.getMonthStats(monthAnchor.year, monthAnchor.month)
       .then((stats) => { if (mounted) setMonthStats(stats); })
       .catch((err) => console.error("ReportsPage month load error:", err));
     return () => { mounted = false; };
@@ -118,9 +118,10 @@ export default function ReportsPage() {
     let mounted = true;
     async function loadSchedules() {
       try {
-        const base = new Date(nowMs());
-        base.setDate(base.getDate() + weekOffset * 7);
-        const { startDate } = getPersianWeekRange(getPersianWeekKey(base));
+        // D1.10-E2: week identity anchors on the policy civil date shifted
+        // by whole civil weeks — no device clock.
+        const weekAnchorKey = addCivilDays(getPolicyTodayKey(), weekOffset * 7);
+        const { startDate } = getPersianWeekRange(getPersianWeekKey(weekAnchorKey));
         const dates = [];
         for (let i = 0; i < 7; i++) dates.push(addDaysToDateKey(startDate, i));
         const all = await Promise.all(
@@ -149,8 +150,11 @@ export default function ReportsPage() {
     let mounted = true;
     async function loadWeekly() {
       try {
-        const base = new Date(nowMs()); base.setDate(base.getDate() + weekOffset * 7);
-        const wStats = await AggregationService.getWeeklyStats(base);
+        // D1.10-E2/F: the week anchor travels as a canonical Civil Date key;
+        // getWeekRange anchors on that civil date in the Account Timezone —
+        // no device-local Date bridge.
+        const weekAnchorKey = addCivilDays(getPolicyTodayKey(), weekOffset * 7);
+        const wStats = await AggregationService.getWeeklyStats(weekAnchorKey);
         if (!mounted) return; setWeeklyStats(wStats);
       } catch (err) { console.error("ReportsPage weekly load error:", err); }
     }
@@ -159,13 +163,15 @@ export default function ReportsPage() {
   }, [weekOffset]);
 
   const weekRange = useMemo(() => {
-    const base = new Date(nowMs()); base.setDate(base.getDate() + weekOffset * 7);
-    return getPersianWeekRange(getPersianWeekKey(base));
+    const weekAnchorKey = addCivilDays(getPolicyTodayKey(), weekOffset * 7);
+    return getPersianWeekRange(getPersianWeekKey(weekAnchorKey));
   }, [weekOffset]);
 
   const monthMeta = useMemo(() => {
-    const base = new Date(nowMs()); base.setMonth(base.getMonth() + monthOffset);
-    return { year: base.getFullYear(), month: base.getMonth() + 1, label: new Intl.DateTimeFormat("fa-IR", { year: "numeric", month: "long" }).format(base) };
+    const monthAnchor = getPolicyMonthAnchor(monthOffset);
+    // Mid-month local date: presentation-only input for the fa-IR month label.
+    const labelDate = new Date(monthAnchor.year, monthAnchor.month - 1, 15);
+    return { year: monthAnchor.year, month: monthAnchor.month, label: new Intl.DateTimeFormat("fa-IR", { year: "numeric", month: "long" }).format(labelDate) };
   }, [monthOffset]);
 
   const weekLogs = useMemo(() => weeklyStats?.weeklyDayLogs || [], [weeklyStats]);
@@ -194,10 +200,13 @@ export default function ReportsPage() {
 
   const heatmapMap = useMemo(() => { const m = new Map(); heatmapData.forEach(d => m.set(d.date, d.level)); return m; }, [heatmapData]);
   const heatmapDays = useMemo(() => {
-    const days = []; const today = new Date(nowMs());
+    // D1.10-E2: the 90-day window is anchored on the policy civil date;
+    // addDaysToDateKey performs the shift with civil arithmetic.
+    const todayKey = getPolicyTodayKey();
+    const days = [];
     for (let i = 89; i >= 0; i--) {
-      const d = new Date(today); d.setDate(d.getDate() - i);
-      days.push({ date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`, level: heatmapMap.get(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`) || 0 });
+      const date = addDaysToDateKey(todayKey, -i);
+      days.push({ date, level: heatmapMap.get(date) || 0 });
     }
     return days;
   }, [heatmapMap]);
@@ -260,7 +269,7 @@ export default function ReportsPage() {
 
   const generateAdvisorMarkdown = useCallback(() => {
     const { startDate, endDate } = weekRange;
-    let md = `# 📋 گزارش هفتگی MohammadOS\n\n**دوره:** ${toPersianDate(startDate)} تا ${toPersianDate(endDate)}\n**تولید شده در:** ${toPersianDate(getLocalDateKey(new Date(nowMs())))}\n\n---\n\n## 🎯 خلاصه کلی\n\n- **Full Day Rate:** ${weekDerived?.fullDays || 0}/${weekDerived?.totalDays || 0} روز\n- **میانگین حال روز:** ${weekDerived?.avgMood && weekDerived.avgMood !== "-" ? weekDerived.avgMood + " / 5" : "ثبت نشده"}\n- **Grace Days استفاده شده:** ${weekDerived?.frozenDays || 0}\n- **استریک فعلی:** ${vitals?.streak || 0} روز\n- **Consistency:** ${vitals?.consistency || 0}%\n\n## 📅 جزئیات روزانه\n\n| تاریخ | وضعیت | Mood | Critical Done | Notes |\n|-------|-------|------|---------------|-------|\n`;
+    let md = `# 📋 گزارش هفتگی MohammadOS\n\n**دوره:** ${toPersianDate(startDate)} تا ${toPersianDate(endDate)}\n**تولید شده در:** ${toPersianDate(getPolicyTodayKey())}\n\n---\n\n## 🎯 خلاصه کلی\n\n- **Full Day Rate:** ${weekDerived?.fullDays || 0}/${weekDerived?.totalDays || 0} روز\n- **میانگین حال روز:** ${weekDerived?.avgMood && weekDerived.avgMood !== "-" ? weekDerived.avgMood + " / 5" : "ثبت نشده"}\n- **Grace Days استفاده شده:** ${weekDerived?.frozenDays || 0}\n- **استریک فعلی:** ${vitals?.streak || 0} روز\n- **Consistency:** ${vitals?.consistency || 0}%\n\n## 📅 جزئیات روزانه\n\n| تاریخ | وضعیت | Mood | Critical Done | Notes |\n|-------|-------|------|---------------|-------|\n`;
     weekLogs.forEach(log => {
       const status = log.status === "frozen" ? "❄️ Grace" : log.fullDay ? "✅ Full" : "⏳ Partial";
       const mood = log.mood && MOOD_LABELS[log.mood] ? MOOD_LABELS[log.mood] : "-";

@@ -5,7 +5,8 @@ import { CourseRepository } from "../repositories/CourseRepository";
 import { AggregationService } from "../service/aggregationService";
 import { getInsights } from "../ai/coachService";
 import { recalibrateAllHabits } from "../app/recalibrateHabits";
-import { getPersianWeekKey, getLocalDateKey, nowMs, toPersianDate, toPersianNumber, toPersianDateShort } from "../utils/date";
+import { getPersianWeekKey, nowMs, toPersianDate, toPersianNumber, toPersianDateShort } from "../utils/date";
+import { getPolicyTodayKey } from "../config/timePolicy";
 
 const GRACE_MONTHLY_LIMIT = 2;
 
@@ -45,7 +46,7 @@ export default function StatusPage() {
   const toastTimeoutRef = useRef(null);
   const [clockMs, setClockMs] = useState(() => nowMs());
 
-  const todayKey = useMemo(() => getLocalDateKey(new Date(clockMs)), [clockMs]);
+  const todayKey = useMemo(() => getPolicyTodayKey(new Date(clockMs)), [clockMs]);
   const currentPeriodKey = useMemo(() => getPersianWeekKey(new Date(clockMs)), [clockMs]);
 
   useEffect(() => {

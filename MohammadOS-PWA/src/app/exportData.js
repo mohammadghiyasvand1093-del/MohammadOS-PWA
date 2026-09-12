@@ -1,7 +1,9 @@
 // src/app/exportData.js
 import { db } from "../db/database";
-// ✅ FIX 4.3: Added todayKey, toPersianDate
-import { todayKey, toPersianDate, getLocalDateKey } from "../utils/date";
+// D1.10-E1: export range anchors and filename dates use the Account-Timezone
+// policy date, not the device clock.
+import { addCivilDays, toPersianDate } from "../utils/date";
+import { getPolicyTodayKey } from "../config/timePolicy";
 
 function downloadFile(content, filename, type, addBOM = false) {
   const finalContent = addBOM
@@ -47,16 +49,16 @@ async function compressGzip(text) {
   return { blob: await response.blob(), extension: "json.gz" };
 }
 
-function getStartDate(range) {
-  const today = new Date();
-  if (range === "7") today.setDate(today.getDate() - 7);
-  else if (range === "30") today.setDate(today.getDate() - 30);
-  else if (range === "all") return new Date(0);
-  return today;
-}
-
 function getDateLimitStr(range) {
-  return getLocalDateKey(getStartDate(range));
+  // D1.10-E1: the range anchor is the policy Civil Date plus civil-day
+  // arithmetic — never the device clock.
+  const todayKeyStr = getPolicyTodayKey();
+  if (range === "7") return addCivilDays(todayKeyStr, -7);
+  if (range === "30") return addCivilDays(todayKeyStr, -30);
+  // "all": canonical string floor below any stored Civil Date (same intent
+  // as the legacy epoch anchor, deterministic and TZ-independent).
+  if (range === "all") return "0000-01-01";
+  return todayKeyStr;
 }
 
 function escapeCsv(value) {
@@ -157,7 +159,7 @@ export async function exportToCSV(range) {
 
     const csvContent = rows.join("\n");
     // ✅ FIX 4.1: Shamsi filename for CSV
-    const filename = `MohammadOS_Logs_${range}d_${toPersianDate(todayKey())}.csv`;
+    const filename = `MohammadOS_Logs_${range}d_${toPersianDate(getPolicyTodayKey())}.csv`;
     downloadFile(csvContent, filename, "text/csv;charset=utf-8;", true);
     return true;
   } catch (error) {
@@ -215,7 +217,7 @@ export async function exportToJSON(range) {
     const jsonContent = JSON.stringify(data, null, 2);
     const compressed = await compressGzip(jsonContent);
     // ✅ FIX 4.2: Shamsi filename for JSON
-    const filename = `MohammadOS_Backup_${range}d_${toPersianDate(todayKey())}.${compressed.extension}`;
+    const filename = `MohammadOS_Backup_${range}d_${toPersianDate(getPolicyTodayKey())}.${compressed.extension}`;
     downloadBlob(compressed.blob, filename);
 
     // Batch 8.6: Save last export timestamp to localStorage

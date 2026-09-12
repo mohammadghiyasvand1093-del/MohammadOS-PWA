@@ -232,6 +232,18 @@ export async function importRoadmapFromJSON(jsonText, replaceExisting = false) {
     throw new Error("فرمت Roadmap نامعتبر است (باید شامل آرایه gates باشد).");
   }
 
+  // D1.10-G: gate deadline is a Civil Date — the overdue logic compares it
+  // as a civil string, and the generic backup validator never sees this
+  // path, so garbage or numeric values must be rejected here explicitly.
+  for (const gateData of parsed.gates) {
+    const deadline = gateData?.deadline;
+    if (deadline !== undefined && deadline !== null && deadline !== "") {
+      if (typeof deadline !== "string" || !isDateKey(deadline)) {
+        throw new Error(`deadline نامعتبر برای Gate «${gateData?.title || "?"}»: باید تاریخ میلادی YYYY-MM-DD باشد.`);
+      }
+    }
+  }
+
   const titleToIdMap = new Map();
   const importedGates = [];
 

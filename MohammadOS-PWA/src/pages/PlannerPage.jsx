@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { ScheduleRepository } from "../repositories/ScheduleRepository";
 import { GateRepository } from "../repositories/GateRepository";
 import { db } from "../db/database";
-import { toPersianDate, nowMs, getLocalDateKey } from "../utils/date";
+import { toPersianDate, nowMs } from "../utils/date";
 import { importDatedSchedule, importWeeklySchedule } from "../app/ImportService";
 import {
   getPolicyDateKey,
@@ -231,7 +231,7 @@ export default function PlannerPage() {
         // ── Study Plan Import ──
         const days = hasDays
           ? data.days
-          : [{ dayOfWeek: data.date || getLocalDateKey(new Date()), schedule: data.schedule }];
+          : [{ dayOfWeek: data.date || getPolicyTodayKey(), schedule: data.schedule }];
 
         let importedCount = 0;
         for (const day of days) {

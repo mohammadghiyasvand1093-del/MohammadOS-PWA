@@ -7,7 +7,8 @@
  */
 
 // ✅ FIX 3.9: Added toPersianDate
-import { toPersianDate, getLocalDateKey } from "../utils/date";
+import { toPersianDate } from "../utils/date";
+import { getPolicyTodayKey } from "../config/timePolicy";
 import { isSupabaseConfigured, supabase } from "../auth/supabaseClient";
 
 /* ──────────── Rule-based insights ──────────── */
@@ -27,7 +28,7 @@ function buildRuleBasedInsights(vitals = {}, weeklyStats = {}, domainTrend = [],
 
   // 🟢 Batch 59: Check Roadmap Constraints Locally
   if (roadmapStatus && Array.isArray(roadmapStatus.gates)) {
-    const todayStr = getLocalDateKey(new Date());
+    const todayStr = getPolicyTodayKey();
     const overdueGates = roadmapStatus.gates.filter(g => g.deadline && g.deadline < todayStr && g.progress < 100);
     if (overdueGates.length > 0) {
       insights.push({

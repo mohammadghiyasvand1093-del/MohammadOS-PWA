@@ -1,6 +1,7 @@
 // src/app/exportSchedule.js
 import { ScheduleRepository } from "../repositories/ScheduleRepository";
-import { getDayEnFromDateKey, getLocalDateKey } from "../utils/date";
+import { addCivilDays, getDayEnFromDateKey, getDayOfWeekFromDateKey } from "../utils/date";
+import { getPolicyTodayKey } from "../config/timePolicy";
 import { getDateRangeInclusive, SCHEDULE_MODES } from "../utils/schedule";
 
 const dayMapToICS = {
@@ -53,11 +54,12 @@ export async function exportScheduleToIcs({ mode = SCHEDULE_MODES.WEEKLY, startD
     "METHOD:PUBLISH"
   ];
 
-  const today = new Date();
-  const currentDay = today.getDay();
-  const saturday = new Date(today);
-  saturday.setDate(today.getDate() - (currentDay === 6 ? 0 : currentDay + 1));
-  const weeklyStart = getLocalDateKey(saturday);
+  // D1.10-E1: the weekly anchor is the Account-Timezone civil week
+  // (Saturday → Friday) derived from the policy date, never the device clock.
+  const todayKeyStr = getPolicyTodayKey();
+  const daysSinceSaturday = getDayOfWeekFromDateKey(todayKeyStr); // Persian: Sat = 0
+  const saturdayKey = addCivilDays(todayKeyStr, -daysSinceSaturday);
+  const weeklyStart = saturdayKey;
   const weeklyRecords = mode === SCHEDULE_MODES.WEEKLY
     ? await Promise.all(days.map((day) => ScheduleRepository.getDaySchedule(day).catch(() => null)))
     : [];
@@ -67,11 +69,7 @@ export async function exportScheduleToIcs({ mode = SCHEDULE_MODES.WEEKLY, startD
   const datedByDate = new Map(datedRecords.map((record) => [record.dateKey, record]));
   const dates = mode === SCHEDULE_MODES.DATED
     ? getDateRangeInclusive(startDate, endDate)
-    : days.map((_, index) => {
-      const d = new Date(saturday);
-      d.setDate(saturday.getDate() + index);
-      return getLocalDateKey(d);
-    });
+    : days.map((_, index) => addCivilDays(saturdayKey, index));
 
   dates.forEach((dateKey, index) => {
     const dayOfWeek = mode === SCHEDULE_MODES.DATED

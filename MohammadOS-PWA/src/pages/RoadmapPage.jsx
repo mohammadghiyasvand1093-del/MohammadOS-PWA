@@ -6,7 +6,8 @@ import CoachReportModal from "../components/CoachReportModal";
 import { runMonthlyReview } from "../ai/coachService";
 import { ImportService } from "../app/ImportService";
 // ✅ FIX 3.7: Added toPersianDate
-import { toPersianNumber, toPersianDate, getLocalDateKey } from "../utils/date";
+import { toPersianNumber, toPersianDate, getPolicyMonthAnchor } from "../utils/date";
+import { getPolicyTodayKey } from "../config/timePolicy";
 import RoadmapStatsPanel from "../components/RoadmapStatsPanel";
 import RoadmapGateCard from "../components/RoadmapGateCard";
 import RoadmapImportWizard from "../components/RoadmapImportWizard";
@@ -205,9 +206,11 @@ export default function RoadmapPage() {
     setCoachError(null);
     setCoachReport(null);
     try {
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = now.getMonth() + 1;
+      // D1.10-F: the reviewed month is the Account-Timezone civil month
+      // (the same identity as the dayLogs hierarchy), not the device clock —
+      // around month boundaries devices outside Tehran would fetch the
+      // previous month's logs.
+      const { year, month } = getPolicyMonthAnchor(0);
       const monthStr = `${year}-${String(month).padStart(2, "0")}`;
       let monthLogs = [];
       try {
@@ -253,14 +256,14 @@ export default function RoadmapPage() {
     const blob = new Blob([jsonStr], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = `mohammados-roadmap-${getLocalDateKey(new Date())}.json`;
+    a.href = url; a.download = `mohammados-roadmap-${getPolicyTodayKey()}.json`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
   };
 
   const handleExportRoadmapMarkdown = () => {
     if (gates.length === 0) { setError("هیچ Gateی برای خروجی گرفتن وجود ندارد."); return; }
     setError(null);
-    let md = `# 🗺️ نقشه راه مسیر شغلی MohammadOS\n\n**تاریخ تولید:** ${new Date().toLocaleDateString("fa-IR")}\n\n---\n\n`;
+    let md = `# 🗺️ نقشه راه مسیر شغلی MohammadOS\n\n**تاریخ تولید:** ${toPersianDate(getPolicyTodayKey())}\n\n---\n\n`;
     gates.forEach((g) => {
       const doneCount = g.criteria?.filter((c) => c.done).length || 0;
       const totalCount = g.criteria?.length || 0;
@@ -290,7 +293,7 @@ export default function RoadmapPage() {
     const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = `mohammados-roadmap-${getLocalDateKey(new Date())}.md`;
+    a.href = url; a.download = `mohammados-roadmap-${getPolicyTodayKey()}.md`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
   };
 
@@ -345,7 +348,7 @@ export default function RoadmapPage() {
 
   const roadmapStats = useMemo(() => {
     let completedGates = 0, inProgressGates = 0, lockedGates = 0, overdueGates = 0, totalCriteria = 0, doneCriteria = 0;
-    const todayStr = getLocalDateKey(new Date());
+    const todayStr = getPolicyTodayKey();
     gates.forEach((g) => {
       const total = g.criteria?.length || 0;
       const done = g.criteria?.filter((c) => c.done).length || 0;
